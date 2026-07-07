@@ -226,6 +226,51 @@ describe('QemuCommandBuilder machine types', () => {
     ).toThrow('Machine architecture is not configured yet.');
   });
 
+  it('allows gpu none and omits display hardware args', () => {
+    const builder = new QemuCommandBuilder();
+    const result = builder.build({
+      machine: {
+        title: 'Headless Display None',
+        system: {
+          arch: 'x86_64',
+          machine_type: 'pc-q35-9.2',
+          accelerator: 'tcg',
+          boot_order: 'disk',
+          memory_mib: 2048,
+          cpu_cores: 2,
+          sound_card: 'intel-hda',
+          uefi: false
+        },
+        media: { iso: '', floppy: '' },
+        disks: [],
+        network: { enabled: false, mode: 'user', card: 'rtl8139' },
+        display: { frontend: 'sanaka', gpu: 'none', sanaka: { backend: 'vnc', scale_mode: 'fit', clipboard: true } },
+        peripherals: { usb_tablet: true },
+        advanced: { audio_backend: 'auto', qemu_args: '' }
+      },
+      environment: {
+        binaries: {
+          x86_64: { found: true, path: '/usr/bin/qemu-system-x86_64' }
+        },
+        accelerators: ['tcg']
+      },
+      runtimePaths: {
+        qmp: { transport: 'tcp', host: '127.0.0.1', port: 47001 }
+      },
+      displayConfig: {
+        port: 5901,
+        websocketPort: 5701,
+        displayNumber: 1
+      },
+      host: {
+        platform: 'darwin',
+        arch: 'arm64'
+      }
+    });
+
+    expect(result.args).not.toContain('-vga');
+  });
+
   it('emits -machine q35 for x86 machines configured with q35', () => {
     const builder = new QemuCommandBuilder();
     const result = builder.build({

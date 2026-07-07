@@ -252,6 +252,80 @@ arch = "i386"
     readFileMock.mockRestore();
   });
 
+  it('builds a full qemu command list with custom arg markers for display', async () => {
+    const build = vi.fn(() => ({
+      binaryPath: '/usr/bin/qemu-system-x86_64',
+      args: ['-m', '2048', '-smp', '2', '-device', 'usb-kbd', '-serial', 'stdio'],
+      accelerator: 'tcg',
+      display: {
+        frontend: 'sanaka',
+        backend: 'vnc',
+        port: 5901,
+        websocketPort: 5700
+      }
+    }));
+    const pathProxyService = {
+      resolveMachinePaths: vi.fn(async ({ machine }) => ({ machine })),
+      resolveLaunchPath: vi.fn()
+    };
+    const { manager } = createManager({
+      builder: { build },
+      pathProxyService
+    });
+
+    const machine = {
+      id: 'vm-full-command',
+      title: 'VM Full Command',
+      system: {
+        arch: 'x86_64',
+        machine_type: 'pc-q35-9.2',
+        accelerator: 'tcg',
+        boot_order: 'disk',
+        memory_mib: 2048,
+        cpu_cores: 2,
+        sound_card: 'intel-hda',
+        uefi: false
+      },
+      media: { iso: '', floppy: '' },
+      disks: [],
+      network: { enabled: false, mode: 'user', card: 'rtl8139' },
+      display: { frontend: 'sanaka', gpu: 'std', sanaka: { backend: 'vnc', scale_mode: 'fit', clipboard: true } },
+      peripherals: { usb_tablet: true },
+      advanced: { audio_backend: 'auto', qemu_args: '-device usb-kbd -serial stdio' }
+    };
+
+    const result = await manager.getFullQemuCommand(machine);
+
+    expect(pathProxyService.resolveMachinePaths).toHaveBeenCalledTimes(1);
+    expect(result.args).toEqual([
+      { id: 'binary', raw: '/usr/bin/qemu-system-x86_64', isCustom: false, editable: false },
+      { id: 'generated:0:flag', raw: '-m', isCustom: false, editable: false },
+      {
+        id: 'generated:0:value',
+        raw: '2048',
+        isCustom: false,
+        editable: true,
+        removable: false,
+        bindingKey: 'system.memory_mib',
+        editPrefix: '-m'
+      },
+      { id: 'generated:2:flag', raw: '-smp', isCustom: false, editable: false },
+      {
+        id: 'generated:2:value',
+        raw: '2',
+        isCustom: false,
+        editable: true,
+        removable: false,
+        bindingKey: 'system.cpu_cores',
+        editPrefix: '-smp'
+      },
+      { id: 'custom:0:0', raw: '-device', isCustom: true, editable: false, customIndex: 0 },
+      { id: 'custom:0:1', raw: 'usb-kbd', isCustom: true, editable: false, customIndex: 0 },
+      { id: 'custom:1:0', raw: '-serial', isCustom: true, editable: false, customIndex: 1 },
+      { id: 'custom:1:1', raw: 'stdio', isCustom: true, editable: false, customIndex: 1 }
+    ]);
+  });
+
   it('proxies machine file paths before building the preview command on Windows', async () => {
     const build = vi.fn(() => ({
       binaryPath: 'C:\\Program Files\\qemu\\qemu-system-x86_64.EXE',

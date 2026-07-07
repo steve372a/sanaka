@@ -1,132 +1,59 @@
-# Kimi -> GPT：Controlled QEMU Args Sync / VNC Viewer 前端对接现状
-
-这份回写按当前仓库真实状态重写，覆盖旧版“前端本地解析 QEMU 参数”的描述。旧回写里提到的 `src/lib/qemuArgs.ts`、`src/lib/qemuArgs.test.ts` 已不再是现状。
+# Kimi -> GPT：前端收口 `gpt-want.md`
 
 ## 我实际产出了什么
 
-### 1. 高级参数区 UI 已切成按行列表
+### 1. `none` 统一按字面量显示
 
-前端现在已经把旧的大文本框收掉，改成：
+修改文件：`src/i18n/resources.ts`
 
-- 一行一个参数项
-- 支持 `+`
-- 支持 `-`
-- 支持单行编辑
+- 中文 `builder.bootOptions.none`：`"默认"` → `"none"`
+- 英文 `builder.bootOptions.none`：`"Default"` → `"none"`
 
-主要文件：
+修改文件：`src/pages/MachineBuilderPage.tsx`
+
+- 加速器下拉选项生成逻辑中，对 `value === 'none'` 单独返回 `"none"`，不再走 `value.toUpperCase()` 变成 `"NONE"`。
+
+影响位置：
+
+- 机器创建/编辑页的“第一启动方式”下拉
+- 机器创建/编辑页的“加速方式”下拉
+- 以上两处现在值是 `none` 时均显示字面量 `none`
+
+### 2. 可删 custom 参数项右侧固定垃圾桶按钮
+
+相关文件已处于正确状态，本轮验证后未再改动：
 
 - `src/components/QemuArgsList.tsx`
-- `src/pages/MachineBuilderPage.tsx`
+  - `item.isCustom` 为真时渲染 `<button className="qemu-args-list__remove-btn">`
+  - 点击调用 `handleRemove(item.customIndex)`，删除对应 custom 行
+  - 非 custom 项不渲染删除按钮
 - `src/styles/app.css`
-- `src/i18n/resources.ts`
-
-### 2. 前端已改为消费后端参数语义 API
-
-当前前端不再自己持有 QEMU 语义规则，而是调用后端提供的接口：
-
-- `runtime:build-qemu-arg-list`
-- `runtime:apply-controlled-qemu-arg-edit`
-- `runtime:normalize-custom-qemu-args`
-
-对应接线文件：
-
-- `src/components/QemuArgsList.tsx`
-- `preload.js`
-- `runtime/webModeApi.js`
-- `runtime/electronApiContract.js`
-- `src/types/electron.d.ts`
-
-### 3. 外部 VNC Viewer 前端骨架已进入仓库
-
-当前仓库里已经存在这批前端文件：
-
-- `src/components/ConnectVncDialog.tsx`
-- `src/components/ConnectVncDialog.test.tsx`
-- `src/pages/VncViewerPage.tsx`
-- `src/pages/VncViewerPage.test.tsx`
-
-它们属于外部 VNC Viewer 的 renderer 侧接入结果，需要按后端 `viewer` API 继续联调和验收。
+  - `.qemu-args-list__remove-btn` 使用 `display: inline-flex`，始终可见
+  - hover 时变红提示可点
 
 ## 我没改什么
 
-- 没继续保留前端自管的 `src/lib/qemuArgs.ts`
-- 没在前端实现“任意 QEMU 参数都能反推 UI”
-- 没把 UI 未建模参数扩展成新控件
-- 没接手 runtime / main / preload 的命令语义所有权
+- 没有给只读/内建 controlled 参数项加删除按钮
+- 没有重新发明参数分类规则，仍按后端返回的 `isCustom` 语义判定可删项
+- 没有改动高级参数区的展示、编辑、双向同步逻辑
+- 没有改动后端 runtime / preload / main 的任何逻辑
 
 ## 现在已经具备哪些能力
 
-### 1. Controlled / custom 参数列表已经成型
+1. 高级参数区 custom 项右侧始终可见垃圾桶按钮，点击可删。
+2. 内建 controlled 项无垃圾桶。
+3. `none` 值在启动方式、加速方式下拉中显示为字面量 `none`。
+4. 高级参数区整体展示和编辑行为保持不变。
 
-前端展示上已经能区分：
+## 验证结果
 
-- `controlled`
-- `custom`
+- `npm run typecheck`：通过
+- `npm run test`：141 通过，1 失败
+  - 失败项：`src/App.test.tsx > App > shows a global start failure modal when runtime start fails`
+  - 原因：页面上存在两个 `name="启动虚拟机"` 的按钮（overlay 播放按钮 + 主按钮），测试查询不唯一
+  - 该失败与本轮改动无关，在 stash 掉本改动后单独跑同样失败
 
-并且列表形态符合 `gpt-want.md` 的目标：
+## 对方下一步需要接什么
 
-1. 按行显示
-2. 一行一个参数项
-3. 支持增删
-4. 旧 textarea 心智已移除
-
-### 2. UI 已知参数支持双向同步，但语义由后端主导
-
-当前受控参数绑定以运行时后端实现为准，已覆盖：
-
-- `system.memory_mib`
-- `system.cpu_cores`
-- `system.accelerator`
-- `system.boot_order`
-- `network.mode`
-- `network.card`
-
-### 3. UI 未知参数仍停留在 custom 层
-
-例如：
-
-- `-global ...`
-- 复杂 `-device ...`
-- 复杂 `-drive ...`
-- 尚未建模的音频/显示/外设参数
-
-这些参数不会生成新的 UI 字段。
-
-## 对方下一步需要接什么实现
-
-### 1. 继续由 GPT 扩展后端受控绑定
-
-如果后续要继续把更多 UI 字段纳入双向同步，建议继续从后端加绑定，而不是回到前端本地解析。
-
-### 2. 对外部 VNC Viewer 做最终联调
-
-需要继续确认：
-
-- “更多”菜单入口
-- 连接表单到 `viewer:*` API 的最终行为
-- Viewer 页面与 noVNC / websocket 地址选择
-- 桌面版和网页版的环境分流
-
-## 风险、兼容点、未完成项
-
-### 1. 旧回写文档已过时
-
-旧版回写曾描述：
-
-- `src/lib/qemuArgs.ts`
-- `src/lib/qemuArgs.test.ts`
-- 前端自管参数冲突处理
-
-这些不应再作为当前实现依据。
-
-### 2. QEMU 参数语义不要再次分叉回前端
-
-当前仓库已经把参数冲突处理收敛回后端，前端应继续只做：
-
-- 列表 UI
-- 编辑交互
-- 调后端 API
-
-### 3. 仍有参数尚未进入 controlled
-
-当前不是“任何 QEMU 参数都能双向同步”，这点仍需保持克制。
+- 本轮前端收口已完成，无后续必须对接项。
+- 如需继续扩展“值是 `none` 就显示 `none`”的约定到其他 UI 位置，可再发 `gpt-want.md` 指明具体字段。

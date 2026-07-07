@@ -310,6 +310,20 @@ const audioBackendOptions = [
   { value: 'directsound', label: 'DirectSound' }
 ] as ReadonlyArray<{ value: SakaMachine['advanced']['audio_backend']; label: string }>;
 
+function withCustomOption<T extends string>(
+  options: ReadonlyArray<{ value: T; label: string }>,
+  value: T | null | undefined,
+  customLabel: string
+): Array<{ value: T; label: string }> {
+  if (!value) {
+    return [...options];
+  }
+  if (options.some((option) => option.value === value)) {
+    return [...options];
+  }
+  return [{ value, label: customLabel }, ...options];
+}
+
 function linuxArchDefaults(arch: SakaMachine['system']['arch']) {
   if (arch === 'i386') {
     return {
@@ -551,7 +565,8 @@ export function MachineBuilderPage() {
           : value === 'kvm' ? 'KVM（Linux）'
             : value === 'whpx' ? 'WHPX（Windows）'
               : value === 'hax' ? 'HAX（Windows）'
-                : value.toUpperCase();
+                : value === 'none' ? 'none'
+                  : value.toUpperCase();
 
     return { value, label };
   }) as Array<{
@@ -559,14 +574,21 @@ export function MachineBuilderPage() {
     label: string;
   }>;
   const visibleArchOptions = customArchOptions;
-  const visibleGpuOptions = machine ? gpuOptionsForMachine(machine) : x86GpuOptions;
-  const visibleNetworkCardOptions = machine ? networkCardOptionsForMachine(machine) : networkCardOptions;
+  const baseGpuOptions = machine ? gpuOptionsForMachine(machine) : x86GpuOptions;
+  const baseNetworkCardOptions = machine ? networkCardOptionsForMachine(machine) : networkCardOptions;
   const visibleDiskInterfaceOptions = machine ? diskInterfaceOptionsForMachine(machine) : diskInterfaceOptions;
-  const visibleSoundOptions = isCustomTemplate ? customSoundOptions : soundOptions;
+  const baseSoundOptions = isCustomTemplate ? customSoundOptions : soundOptions;
   const selectedAccelerator = machine?.system.accelerator ?? null;
   const selectedMachineType = machine?.system.machine_type ?? null;
   const selectedGpu = machine?.display.gpu ?? null;
+  const selectedSoundCard = machine?.system.sound_card ?? null;
+  const selectedNetworkCard = machine?.network.card ?? null;
   const previousLinuxArchRef = useRef<SakaMachine['system']['arch'] | null>(null);
+  const customOptionLabel = t('builder.firmware.custom');
+  const visibleMachineTypeOptions = withCustomOption(machineTypeOptions, selectedMachineType, customOptionLabel);
+  const visibleGpuOptions = withCustomOption(baseGpuOptions, selectedGpu, customOptionLabel);
+  const visibleSoundOptions = withCustomOption(baseSoundOptions, selectedSoundCard, customOptionLabel);
+  const visibleNetworkCardOptions = withCustomOption(baseNetworkCardOptions, selectedNetworkCard, customOptionLabel);
 
   useEffect(() => {
     if (!machine || !selectedAccelerator) {
@@ -625,46 +647,14 @@ export function MachineBuilderPage() {
 
     previousLinuxArchRef.current = null;
 
-    if (machineTypeOptions.some((option) => option.value === selectedMachineType)) {
-      return;
-    }
-
-    const fallback = machineTypeOptions[0]?.value;
-    if (!fallback) {
-      return;
-    }
-
-    updateDraft((current) => ({
-      ...current,
-      system: {
-        ...current.system,
-        machine_type: fallback
-      }
-    }));
-  }, [machine, machineTypeOptions, selectedMachineType, updateDraft]);
+  }, [machine, selectedMachineType, updateDraft]);
 
   useEffect(() => {
     if (!machine || !selectedGpu) {
       return;
     }
 
-    if (visibleGpuOptions.some((option: { value: string; label: string }) => option.value === selectedGpu)) {
-      return;
-    }
-
-    const fallback = visibleGpuOptions[0]?.value;
-    if (!fallback) {
-      return;
-    }
-
-    updateDraft((current) => ({
-      ...current,
-      display: {
-        ...current.display,
-        gpu: fallback
-      }
-    }));
-  }, [machine, selectedGpu, updateDraft, visibleGpuOptions]);
+  }, [machine, selectedGpu, updateDraft]);
 
   useEffect(() => {
     if (!machine) {
@@ -965,7 +955,7 @@ export function MachineBuilderPage() {
                 <MaterialSelect
                   label={t('builder.labels.machineType')}
                   value={machine.system.machine_type}
-                  options={machineTypeOptions}
+                  options={visibleMachineTypeOptions}
                   onChange={(nextValue: string) => updateDraft((current) => ({ ...current, system: { ...current.system, machine_type: nextValue } }))}
                 />
               </div>
@@ -1329,7 +1319,7 @@ export function MachineBuilderPage() {
                   onChange={(nextValue: SakaMachine['advanced']['audio_backend']) => updateDraft((current) => ({ ...current, advanced: { ...current.advanced, audio_backend: nextValue } }))}
                 />
               </div>
-              <div className="form-row-align form-row-align--top">
+              <div className="qemu-args-list__wrapper">
                 <QemuArgsList
                   machine={machine}
                   onChange={(next) => updateDraft(() => next)}

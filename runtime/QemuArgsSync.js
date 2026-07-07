@@ -1,12 +1,17 @@
 const { deriveStableMacAddress, tokenizeUserArgs } = require('./QemuCommandBuilder');
 
 const CONTROLLED_BINDINGS = {
+  title: 'machine.title',
+  machineType: 'system.machine_type',
   memory: 'system.memory_mib',
   cpu: 'system.cpu_cores',
   accel: 'system.accelerator',
   boot: 'system.boot_order',
+  soundCard: 'system.sound_card',
+  gpu: 'display.gpu',
   networkMode: 'network.mode',
-  networkCard: 'network.card'
+  networkCard: 'network.card',
+  usbTablet: 'peripherals.usb_tablet'
 };
 
 const VALID_ACCELERATORS = new Set(['none', 'tcg', 'mttcg', 'kvm', 'hax', 'whpx', 'hvf']);
@@ -117,13 +122,31 @@ function buildControlledArgs(machine) {
 function classifyRaw(raw) {
   const tokens = tokenizeUserArgs(raw);
   const flag = tokens[0];
+  if (flag === '-name') return { source: 'controlled', bindingKey: CONTROLLED_BINDINGS.title };
+  if (flag === '-machine') return { source: 'controlled', bindingKey: CONTROLLED_BINDINGS.machineType };
   if (flag === '-m') return { source: 'controlled', bindingKey: CONTROLLED_BINDINGS.memory };
   if (flag === '-smp') return { source: 'controlled', bindingKey: CONTROLLED_BINDINGS.cpu };
   if (flag === '-accel') return { source: 'controlled', bindingKey: CONTROLLED_BINDINGS.accel };
   if (flag === '-boot') return { source: 'controlled', bindingKey: CONTROLLED_BINDINGS.boot };
+  if (flag === '-vga') return { source: 'controlled', bindingKey: CONTROLLED_BINDINGS.gpu };
   if (flag === '-netdev') return { source: 'controlled', bindingKey: CONTROLLED_BINDINGS.networkMode };
   if (flag === '-device' && typeof tokens[1] === 'string' && tokens[1].includes('netdev=net0')) {
     return { source: 'controlled', bindingKey: CONTROLLED_BINDINGS.networkCard };
+  }
+  if (flag === '-device' && typeof tokens[1] === 'string') {
+    const device = tokens[1].split(',')[0];
+    if (device === 'intel-hda' || device === 'AC97' || device === 'sb16' || device === 'virtio-sound-pci') {
+      return { source: 'controlled', bindingKey: CONTROLLED_BINDINGS.soundCard };
+    }
+    if (device === 'virtio-gpu-pci' || device === 'virtio-vga') {
+      return { source: 'controlled', bindingKey: CONTROLLED_BINDINGS.gpu };
+    }
+    if (device === 'usb-tablet') {
+      return { source: 'controlled', bindingKey: CONTROLLED_BINDINGS.usbTablet };
+    }
+  }
+  if (flag === '-usb') {
+    return { source: 'controlled', bindingKey: CONTROLLED_BINDINGS.usbTablet };
   }
   return { source: 'custom' };
 }
@@ -138,6 +161,23 @@ function buildArgList(machine) {
 function applyControlledEdit(machine, bindingKey, raw) {
   const tokens = tokenizeUserArgs(raw);
   switch (bindingKey) {
+    case CONTROLLED_BINDINGS.title: {
+      if (tokens[0] !== '-name' || !tokens[1]) return null;
+      return {
+        ...machine,
+        title: tokens.slice(1).join(' ')
+      };
+    }
+    case CONTROLLED_BINDINGS.machineType: {
+      if (tokens[0] !== '-machine' || !tokens[1]) return null;
+      return {
+        ...machine,
+        system: {
+          ...machine.system,
+          machine_type: tokens[1]
+        }
+      };
+    }
     case CONTROLLED_BINDINGS.memory: {
       if (tokens[0] !== '-m' || !tokens[1]) return null;
       const value = Number(tokens[1]);
@@ -186,6 +226,48 @@ function applyControlledEdit(machine, bindingKey, raw) {
         }
       };
     }
+    case CONTROLLED_BINDINGS.soundCard: {
+      if (tokens[0] !== '-device' || !tokens[1]) return null;
+      const device = tokens[1].split(',')[0];
+      if (!device) return null;
+      return {
+        ...machine,
+        system: {
+          ...machine.system,
+          sound_card: device
+        }
+      };
+    }
+    case CONTROLLED_BINDINGS.gpu: {
+      if (!tokens[0] || !tokens[1]) return null;
+      if (tokens[0] === '-vga') {
+        const value = tokens[1];
+        const gpu = value === 'cirrus' ? 'cirrus-vga'
+          : value === 'vmware' ? 'vmware-svga'
+            : value === 'qxl' ? 'qxl'
+              : value === 'std' ? 'std'
+                : value;
+        return {
+          ...machine,
+          display: {
+            ...machine.display,
+            gpu
+          }
+        };
+      }
+      if (tokens[0] === '-device') {
+        const device = tokens[1].split(',')[0];
+        if (!device) return null;
+        return {
+          ...machine,
+          display: {
+            ...machine.display,
+            gpu: device
+          }
+        };
+      }
+      return null;
+    }
     case CONTROLLED_BINDINGS.networkMode: {
       if (tokens[0] !== '-netdev' || !tokens[1]) return null;
       const mode = tokens[1].split(',')[0];
@@ -212,6 +294,57 @@ function applyControlledEdit(machine, bindingKey, raw) {
         }
       };
     }
+    case CONTROLLED_BINDINGS.usbTablet: {
+      if (tokens[0] !== '-usb' && tokens[0] !== '-device') return null;
+      return {
+        ...machine,
+        peripherals: {
+          ...machine.peripherals,
+          usb_tablet: true
+        }
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+function removeControlledArg(machine, bindingKey) {
+  switch (bindingKey) {
+    case CONTROLLED_BINDINGS.soundCard:
+      return {
+        ...machine,
+        system: {
+          ...machine.system,
+          sound_card: 'none'
+        }
+      };
+    case CONTROLLED_BINDINGS.gpu:
+      return {
+        ...machine,
+        display: {
+          ...machine.display,
+          gpu: 'none'
+        }
+      };
+    case CONTROLLED_BINDINGS.networkMode:
+    case CONTROLLED_BINDINGS.networkCard:
+      return {
+        ...machine,
+        network: {
+          ...machine.network,
+          enabled: false,
+          card: 'none'
+        }
+      };
+    case CONTROLLED_BINDINGS.usbTablet:
+      return {
+        ...machine,
+        peripherals: {
+          ...machine.peripherals,
+          usb_tablet: false
+        }
+      };
     default:
       return null;
   }
@@ -253,5 +386,6 @@ module.exports = {
   buildControlledArgs,
   classifyRaw,
   normalizeCustomArgs,
+  removeControlledArg,
   splitCustomArgs
 };

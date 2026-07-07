@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SakaMachine } from '../domain/schemas';
-import type { ControlledQemuBindingKey, QemuArgItem } from '../types/electron';
+import type { ControlledQemuBindingKey, FullQemuCommandArgItem, QemuArgItem } from '../types/electron';
 
 const PlusIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
@@ -16,11 +16,28 @@ const TrashIcon = () => (
   </svg>
 );
 
-const ControlledBadgeIcon = () => (
-  <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
-    <circle cx="12" cy="12" r="4" />
+const TriangleDownIcon = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+    <polygon points="6,9 18,9 12,17" fill="currentColor" />
   </svg>
 );
+
+const TriangleUpIcon = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+    <polygon points="6,15 18,15 12,7" fill="currentColor" />
+  </svg>
+);
+
+interface ArgLine {
+  id: string;
+  raw: string;
+  isCustom: boolean;
+  editable: boolean;
+  removable: boolean;
+  bindingKey?: ControlledQemuBindingKey;
+  editPrefix?: string;
+  customIndex?: number;
+}
 
 interface QemuArgsListProps {
   machine: SakaMachine;
@@ -28,81 +45,277 @@ interface QemuArgsListProps {
   t: (key: string) => string;
 }
 
-function getBindingDisplayName(key: string | undefined, t: (key: string) => string): string {
-  if (!key) return '';
-  switch (key) {
-    case 'system.memory_mib':
-      return t('builder.labels.memory');
-    case 'system.cpu_cores':
-      return t('builder.labels.cpuCores');
-    case 'system.accelerator':
-      return t('builder.labels.accelerator');
-    case 'system.boot_order':
-      return t('builder.labels.bootOrder');
-    case 'network.mode':
-      return t('builder.labels.networkMode');
-    case 'network.card':
-      return t('builder.labels.networkCard');
-    default:
-      return '';
-  }
+function isFlagToken(raw: string): boolean {
+  return String(raw || '').startsWith('-');
 }
 
 export function QemuArgsList({ machine, onChange, t }: QemuArgsListProps) {
-  const [args, setArgs] = useState<QemuArgItem[]>([]);
+  const [args, setArgs] = useState<ArgLine[]>([]);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
-  const [editError, setEditError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const NEW_CUSTOM_ID = '__new_custom_arg__';
+  const [error, setError] = useState<string | null>(null);
+  const addTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const editInputRef = useRef<HTMLInputElement>(null);
+
+  const mapFullCommandArgs = useCallback((items: FullQemuCommandArgItem[]): ArgLine[] => {
+    const tokenItems = (items || []).map((item, index) => ({
+      id: item.id || `arg-${index}`,
+      raw: item.raw,
+      isCustom: item.isCustom,
+      editable: Boolean(item.editable),
+      removable: Boolean(item.removable),
+      bindingKey: item.bindingKey,
+      editPrefix: item.editPrefix,
+      customIndex: item.customIndex
+    }));
+
+    const groupedItems: ArgLine[] = [];
+    let index = 0;
+
+    while (index < tokenItems.length) {
+      const current = tokenItems[index];
+      if (!current) {
+        index += 1;
+        continue;
+      }
+
+      if (index === 0 && !current.isCustom && !isFlagToken(current.raw)) {
+        groupedItems.push(current);
+        index += 1;
+        continue;
+      }
+
+      if (current.isCustom) {
+        const customGroup = [current];
+        index += 1;
+        while (index < tokenItems.length && tokenItems[index]?.isCustom && tokenItems[index]?.customIndex === current.customIndex) {
+          customGroup.push(tokenItems[index]);
+          index += 1;
+        }
+
+        groupedItems.push({
+          id: `custom-group:${current.customIndex ?? current.id}`,
+          raw: customGroup.map((item) => item.raw).join(' '),
+          isCustom: true,
+          editable: false,
+          removable: true,
+          customIndex: current.customIndex
+        });
+        continue;
+      }
+
+      const generatedGroup = [current];
+      index += 1;
+      while (index < tokenItems.length) {
+        const next = tokenItems[index];
+        if (!next || next.isCustom || isFlagToken(next.raw)) {
+          break;
+        }
+        generatedGroup.push(next);
+        index += 1;
+      }
+
+      const editableSource = generatedGroup.find((item) => item.editable && item.bindingKey);
+      groupedItems.push({
+        id: editableSource?.id || current.id,
+        raw: generatedGroup.map((item) => item.raw).join(' '),
+        isCustom: false,
+        editable: Boolean(editableSource),
+        removable: generatedGroup.some((item) => item.removable),
+        bindingKey: editableSource?.bindingKey,
+        editPrefix: editableSource?.editPrefix
+      });
+    }
+
+    return groupedItems;
+  }, []);
+
+  const mapLegacyArgs = useCallback((items: QemuArgItem[]): ArgLine[] => {
+    return (items || []).map((item, index) => ({
+      id: `arg-${index}`,
+      raw: item.raw,
+      isCustom: item.source === 'custom',
+      editable: Boolean(item.editable),
+      removable: item.source === 'custom',
+      bindingKey: item.bindingKey,
+      editPrefix: item.bindingKey ? String(item.raw).split(' ')[0] : undefined
+    }));
+  }, []);
+
+  const loadArgs = useCallback(
+    async (nextMachine: SakaMachine) => {
+      const runtime = window.electronAPI.runtime;
+      if (runtime.getFullQemuCommand) {
+        const result = await runtime.getFullQemuCommand(nextMachine);
+        setArgs(mapFullCommandArgs(result.args || []));
+        return;
+      }
+      if (runtime.buildQemuArgList) {
+        const result = await runtime.buildQemuArgList(nextMachine);
+        setArgs(mapLegacyArgs(result.args || []));
+      }
+    },
+    [mapFullCommandArgs, mapLegacyArgs]
+  );
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const runtime = window.electronAPI.runtime;
-      if (!runtime.buildQemuArgList) return;
-      const result = await runtime.buildQemuArgList(machine);
-      if (!cancelled) {
-        setArgs(result.args || []);
+      try {
+        await loadArgs(machine);
+      } finally {
+        if (cancelled) {
+          return;
+        }
       }
     };
     void load();
     return () => {
       cancelled = true;
     };
-  }, [machine]);
+  }, [loadArgs, machine]);
 
-  const commitCustomItems = useCallback(
+  const refreshFromCustomArgs = useCallback(
     async (customArgs: string[]) => {
       const runtime = window.electronAPI.runtime;
-      if (!runtime.normalizeCustomQemuArgs) return;
-      const result = await runtime.normalizeCustomQemuArgs({
-        machine,
-        customArgs
-      });
-      onChange(result.machine);
-      setArgs(result.args || []);
+      const customText = customArgs.join('\n');
+      const nextMachine: SakaMachine = {
+        ...machine,
+        advanced: {
+          ...machine.advanced,
+          qemu_args: customText
+        }
+      };
+      if (runtime.getFullQemuCommand) {
+        onChange(nextMachine);
+        await loadArgs(nextMachine);
+        return;
+      }
+      if (runtime.normalizeCustomQemuArgs) {
+        const result = await runtime.normalizeCustomQemuArgs({
+          machine,
+          customArgs
+        });
+        onChange(result.machine);
+        setArgs(mapLegacyArgs(result.args || []));
+        return;
+      }
+      onChange(nextMachine);
     },
-    [machine, onChange]
+    [loadArgs, machine, mapLegacyArgs, onChange]
   );
 
-  const handleStartEdit = useCallback((item: QemuArgItem) => {
+  const currentCustomArgs = useCallback((): string[] => {
+    return machine.advanced.qemu_args
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+  }, [machine]);
+
+  const handleAdd = useCallback(() => {
+    setIsAdding(true);
+    setIsExpanded(true);
+    setEditingId(null);
+    setEditValue('');
+    setError(null);
+    setTimeout(() => addTextareaRef.current?.focus(), 0);
+  }, []);
+
+  const handleCancelAdd = useCallback(() => {
+    setIsAdding(false);
+    setEditingId(null);
+    setEditValue('');
+    setError(null);
+  }, []);
+
+  const handleCommitAdd = useCallback(async () => {
+    const trimmed = editValue.trim();
+    if (trimmed.length === 0) {
+      handleCancelAdd();
+      return;
+    }
+    const newLines = trimmed
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    if (newLines.length === 0) {
+      handleCancelAdd();
+      return;
+    }
+    const nextCustom = [...currentCustomArgs(), ...newLines];
+    await refreshFromCustomArgs(nextCustom);
+    setIsAdding(false);
+    setEditValue('');
+    setError(null);
+  }, [editValue, currentCustomArgs, refreshFromCustomArgs, handleCancelAdd]);
+
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        void handleCommitAdd();
+      } else if (event.key === 'Escape') {
+        handleCancelAdd();
+      }
+    },
+    [handleCommitAdd, handleCancelAdd]
+  );
+
+  const handleRemove = useCallback(
+    async (customIndex: number | undefined) => {
+      if (typeof customIndex !== 'number' || customIndex < 0) return;
+      const nextCustom = currentCustomArgs().filter((_, i) => i !== customIndex);
+      await refreshFromCustomArgs(nextCustom);
+    },
+    [currentCustomArgs, refreshFromCustomArgs]
+  );
+
+  const handleRemoveControlled = useCallback(
+    async (item: ArgLine) => {
+      if (!item.bindingKey) return;
+      const runtime = window.electronAPI.runtime;
+      if (!runtime.removeControlledQemuArg) return;
+      const result = await runtime.removeControlledQemuArg({
+        machine,
+        bindingKey: item.bindingKey
+      });
+      if (!result.ok || !result.machine) {
+        setError(t('builder.errors.invalidArgValue'));
+        return;
+      }
+      onChange(result.machine);
+      await loadArgs(result.machine);
+      setError(null);
+    },
+    [loadArgs, machine, onChange, t]
+  );
+
+  const handleStartEdit = useCallback((item: ArgLine) => {
+    if (!item.editable || !item.bindingKey || !item.editPrefix) return;
+    setIsAdding(false);
     setEditingId(item.id);
     setEditValue(item.raw);
-    setEditError(null);
-    setTimeout(() => inputRef.current?.focus(), 0);
+    setError(null);
+    setTimeout(() => editInputRef.current?.focus(), 0);
   }, []);
 
   const handleCancelEdit = useCallback(() => {
     setEditingId(null);
     setEditValue('');
-    setEditError(null);
+    setError(null);
   }, []);
 
-  const handleCommitControlled = useCallback(
-    async (item: QemuArgItem) => {
-      if (!item.bindingKey) {
+  const handleCommitEdit = useCallback(
+    async (item: ArgLine) => {
+      if (!item.bindingKey || !item.editPrefix) {
         handleCancelEdit();
+        return;
+      }
+      const trimmed = editValue.trim();
+      if (!trimmed) {
+        setError(t('builder.errors.invalidArgValue'));
         return;
       }
       const runtime = window.electronAPI.runtime;
@@ -110,82 +323,35 @@ export function QemuArgsList({ machine, onChange, t }: QemuArgsListProps) {
         handleCancelEdit();
         return;
       }
+      const normalizedRaw = trimmed.startsWith('-') ? trimmed : `${item.editPrefix} ${trimmed}`;
       const result = await runtime.applyControlledQemuArgEdit({
         machine,
-        bindingKey: item.bindingKey as ControlledQemuBindingKey,
-        raw: editValue
+        bindingKey: item.bindingKey,
+        raw: normalizedRaw
       });
       if (!result.ok || !result.machine) {
-        setEditError(t('builder.errors.invalidArgValue'));
+        setError(t('builder.errors.invalidArgValue'));
         return;
       }
       onChange(result.machine);
-      setArgs(result.args || []);
+      await loadArgs(result.machine);
       setEditingId(null);
       setEditValue('');
-      setEditError(null);
+      setError(null);
     },
-    [editValue, machine, onChange, handleCancelEdit, t]
+    [editValue, handleCancelEdit, loadArgs, machine, onChange, t]
   );
 
-  const handleCommitCustom = useCallback(
-    async (item: QemuArgItem) => {
-      const trimmed = editValue.trim();
-      if (trimmed.length === 0) {
-        handleCancelEdit();
-        return;
-      }
-      const currentCustom = args.filter((arg) => arg.source === 'custom').map((arg) => arg.raw);
-      const nextCustom =
-        item.id === NEW_CUSTOM_ID
-          ? [...currentCustom, trimmed]
-          : currentCustom.map((raw, index) => {
-              const customItems = args.filter((arg) => arg.source === 'custom');
-              return customItems[index]?.id === item.id ? trimmed : raw;
-            });
-      await commitCustomItems(nextCustom);
-      setEditingId(null);
-      setEditValue('');
-      setEditError(null);
-    },
-    [args, commitCustomItems, editValue, handleCancelEdit]
-  );
-
-  const handleKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLInputElement>, item: QemuArgItem) => {
+  const handleEditKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>, item: ArgLine) => {
       if (event.key === 'Enter') {
         event.preventDefault();
-        if (item.source === 'controlled') {
-          handleCommitControlled(item);
-        } else {
-          handleCommitCustom(item);
-        }
+        void handleCommitEdit(item);
       } else if (event.key === 'Escape') {
         handleCancelEdit();
       }
     },
-    [handleCommitControlled, handleCommitCustom, handleCancelEdit]
-  );
-
-  const handleAddCustom = useCallback(() => {
-    setEditingId(NEW_CUSTOM_ID);
-    setEditValue('');
-    setEditError(null);
-    setTimeout(() => inputRef.current?.focus(), 0);
-  }, []);
-
-  const handleRemove = useCallback(
-    async (item: QemuArgItem) => {
-      if (item.source === 'controlled') return;
-      const nextCustom = args.filter((arg) => arg.source === 'custom' && arg.id !== item.id).map((arg) => arg.raw);
-      await commitCustomItems(nextCustom);
-      if (editingId === item.id) {
-        setEditingId(null);
-        setEditValue('');
-        setEditError(null);
-      }
-    },
-    [args, commitCustomItems, editingId]
+    [handleCancelEdit, handleCommitEdit]
   );
 
   return (
@@ -195,7 +361,7 @@ export function QemuArgsList({ machine, onChange, t }: QemuArgsListProps) {
         <button
           className="qemu-args-list__add-btn"
           type="button"
-          onClick={handleAddCustom}
+          onClick={handleAdd}
           title={t('builder.actions.addArg')}
           aria-label={t('builder.actions.addArg')}
         >
@@ -203,88 +369,104 @@ export function QemuArgsList({ machine, onChange, t }: QemuArgsListProps) {
           <span>{t('builder.actions.add')}</span>
         </button>
       </div>
-      <div className="qemu-args-list__rows" role="list">
-        {args.map((item) => {
-          const isEditing = editingId === item.id;
-          return (
-            <div
-              key={item.id}
-              className={`qemu-args-list__row qemu-args-list__row--${item.source}`}
-              role="listitem"
-              onDoubleClick={() => item.editable && !isEditing && handleStartEdit(item)}
-            >
-              <span className="qemu-args-list__badge" aria-hidden="true">
-                {item.source === 'controlled' ? <ControlledBadgeIcon /> : null}
-              </span>
-              {item.source === 'controlled' && (
-                <span className="qemu-args-list__binding">{getBindingDisplayName(item.bindingKey, t)}</span>
-              )}
-              {isEditing ? (
-                <input
-                  ref={inputRef}
-                  className="qemu-args-list__input"
-                  type="text"
-                  value={editValue}
-                  aria-label={t('builder.labels.advancedArgs')}
-                  placeholder={item.source === 'controlled' ? '-m 2048' : '-global ICH9-LPC.disable_s3=1'}
-                  onChange={(event) => setEditValue(event.target.value)}
-                  onBlur={() => {
-                    if (item.source === 'controlled') {
-                      handleCommitControlled(item);
-                    } else {
-                      handleCommitCustom(item);
-                    }
-                  }}
-                  onKeyDown={(event) => handleKeyDown(event, item)}
-                />
+      <div className="qemu-args-list__card">
+        <div className="qemu-args-list__root">
+          <button
+            className="qemu-args-list__toggle"
+            type="button"
+            data-testid="qemu-args-toggle"
+            aria-expanded={isExpanded}
+            aria-label={isExpanded ? 'Collapse QEMU arguments' : 'Expand QEMU arguments'}
+            title={isExpanded ? 'Collapse QEMU arguments' : 'Expand QEMU arguments'}
+            onClick={() => setIsExpanded((prev) => !prev)}
+          >
+            {isExpanded ? <TriangleUpIcon /> : <TriangleDownIcon />}
+          </button>
+        </div>
+        <div
+          className={`qemu-args-list__second ${isExpanded ? 'qemu-args-list__second--expanded' : ''}`}
+          aria-hidden={!isExpanded}
+        >
+          <div className="qemu-args-list__second-inner">
+            <div className="qemu-args-list__list" role="list">
+              {args.length === 0 ? (
+                <div className="qemu-args-list__empty" role="listitem">
+                  {t('builder.descriptions.advanced')}
+                </div>
               ) : (
-                <code
-                  className="qemu-args-list__raw"
-                  onClick={() => item.editable && handleStartEdit(item)}
-                  role="button"
-                  tabIndex={item.editable ? 0 : -1}
-                  onKeyDown={(event) => {
-                    if ((event.key === 'Enter' || event.key === ' ') && item.editable) {
-                      event.preventDefault();
-                      handleStartEdit(item);
-                    }
-                  }}
-                >
-                  {item.raw}
-                </code>
+                args.map((item, index) => (
+                  <div
+                    key={item.id}
+                    className={`qemu-args-list__row ${index === args.length - 1 ? 'qemu-args-list__row--last' : ''}`}
+                    role="listitem"
+                  >
+                    {editingId === item.id ? (
+                      <input
+                        ref={editInputRef}
+                        className="qemu-args-list__input"
+                        type="text"
+                        value={editValue}
+                        aria-label={t('builder.labels.advancedArgs')}
+                        onChange={(event) => setEditValue(event.target.value)}
+                        onBlur={() => void handleCommitEdit(item)}
+                        onKeyDown={(event) => handleEditKeyDown(event, item)}
+                      />
+                    ) : (
+                      <code
+                        className={`qemu-args-list__raw ${item.editable ? 'qemu-args-list__raw--editable' : ''}`}
+                        onClick={() => handleStartEdit(item)}
+                        role={item.editable ? 'button' : undefined}
+                        tabIndex={item.editable ? 0 : -1}
+                        onKeyDown={(event) => {
+                          if (item.editable && (event.key === 'Enter' || event.key === ' ')) {
+                            event.preventDefault();
+                            handleStartEdit(item);
+                          }
+                        }}
+                      >
+                        {item.raw}
+                      </code>
+                    )}
+                    {item.removable && (
+                      <button
+                        className="qemu-args-list__remove-btn"
+                        type="button"
+                        onClick={() => {
+                          if (item.isCustom) {
+                            void handleRemove(item.customIndex);
+                            return;
+                          }
+                          void handleRemoveControlled(item);
+                        }}
+                        title={t('builder.actions.removeArg')}
+                        aria-label={t('builder.actions.removeArg')}
+                      >
+                        <TrashIcon />
+                      </button>
+                    )}
+                  </div>
+                ))
               )}
-              {item.source === 'custom' && (
-                <button
-                  className="qemu-args-list__remove-btn"
-                  type="button"
-                  onClick={() => handleRemove(item)}
-                  title={t('builder.actions.removeArg')}
-                  aria-label={t('builder.actions.removeArg')}
-                >
-                  <TrashIcon />
-                </button>
+              {isAdding && (
+                <div className="qemu-args-list__row qemu-args-list__row--last" role="listitem">
+                  <textarea
+                    ref={addTextareaRef}
+                    className="qemu-args-list__textarea"
+                    rows={1}
+                    value={editValue}
+                    aria-label={t('builder.actions.addArg')}
+                    placeholder={t('builder.descriptions.advanced')}
+                    onChange={(event) => setEditValue(event.target.value)}
+                    onKeyDown={handleKeyDown}
+                    onBlur={() => void handleCommitAdd()}
+                  />
+                </div>
               )}
             </div>
-          );
-        })}
-        {editingId === NEW_CUSTOM_ID && (
-          <div className="qemu-args-list__row qemu-args-list__row--custom" role="listitem">
-            <span className="qemu-args-list__badge" aria-hidden="true" />
-            <input
-              ref={inputRef}
-              className="qemu-args-list__input"
-              type="text"
-              value={editValue}
-              aria-label={t('builder.labels.advancedArgs')}
-              placeholder="-global ICH9-LPC.disable_s3=1"
-              onChange={(event) => setEditValue(event.target.value)}
-              onBlur={() => void handleCommitCustom({ id: NEW_CUSTOM_ID, raw: '', source: 'custom', editable: true })}
-              onKeyDown={(event) => void handleKeyDown(event, { id: NEW_CUSTOM_ID, raw: '', source: 'custom', editable: true })}
-            />
           </div>
-        )}
+        </div>
       </div>
-      {editError && <div className="qemu-args-list__error">{editError}</div>}
+      {error && <div className="qemu-args-list__error">{error}</div>}
     </div>
   );
 }

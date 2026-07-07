@@ -213,7 +213,7 @@ export const resources = {
         custom: '自定义'
       },
       bootOptions: {
-        none: '默认',
+        none: 'none',
         cdrom: 'CD-ROM（光盘）',
         disk: 'Disk（硬盘）',
         floppy: 'Floppy（软盘）'
@@ -796,7 +796,7 @@ export const resources = {
         custom: 'Custom'
       },
       bootOptions: {
-        none: 'Default',
+        none: 'none',
         cdrom: 'CD-ROM (Optical Disc)',
         disk: 'Disk (Hard Drive)',
         floppy: 'Floppy (Floppy Disk)'

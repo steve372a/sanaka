@@ -6586,28 +6586,14 @@ html[data-theme="dark"] .context-menu {
   margin-bottom: 10px;
   position: relative;
   overflow: hidden;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(247, 240, 255, 0.62)),
-    rgba(255, 255, 255, 0.32);
-  border: 1px solid rgba(214, 201, 233, 0.72);
+  background: var(--panel-muted);
+  border: none;
   border-radius: 999px;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.92),
-    inset 0 -1px 0 rgba(199, 182, 226, 0.34),
-    0 10px 24px rgba(54, 42, 73, 0.12);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: 0 10px 24px rgba(54, 42, 73, 0.12);
 }
 
 .sidebar-theme-toggle::before {
-  content: "";
-  position: absolute;
-  inset: 1px;
-  border-radius: inherit;
-  background:
-    radial-gradient(circle at 22% 18%, rgba(255, 255, 255, 0.62), transparent 36%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent 58%);
-  pointer-events: none;
+  display: none;
 }
 
 .sidebar-theme-toggle__btn {
@@ -6697,10 +6683,7 @@ html[data-theme="dark"] .sidebar-more-menu__dropdown {
 }
 
 html[data-theme="dark"] .sidebar-theme-toggle {
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
   background: var(--panel-muted);
-  border-color: rgba(74, 66, 96, 0.7);
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
 }
 
@@ -6812,6 +6795,11 @@ body.platform-darwin .app-shell--desktop .app-shell__top-tools {
 }
 
 /* --- QEMU args list --- */
+.qemu-args-list__wrapper {
+  width: 100%;
+  margin-top: 16px;
+}
+
 .qemu-args-list {
   display: flex;
   flex-direction: column;
@@ -6845,6 +6833,7 @@ body.platform-darwin .app-shell--desktop .app-shell__top-tools {
   font-weight: 500;
   cursor: pointer;
   transition: background 160ms ease, border-color 160ms ease;
+  flex-shrink: 0;
 }
 
 .qemu-args-list__add-btn:hover {
@@ -6853,54 +6842,89 @@ body.platform-darwin .app-shell--desktop .app-shell__top-tools {
   color: var(--primary-strong);
 }
 
-.qemu-args-list__rows {
+.qemu-args-list__card {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel-soft);
+  overflow: hidden;
+  width: 100%;
+}
+
+.qemu-args-list__root {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+}
+
+.qemu-args-list__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 160ms ease;
+}
+
+.qemu-args-list__toggle:hover {
+  color: var(--text);
+}
+
+.qemu-args-list__toggle svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.qemu-args-list__second {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 200ms ease;
+}
+
+.qemu-args-list__second--expanded {
+  grid-template-rows: 1fr;
+}
+
+.qemu-args-list__second-inner {
+  overflow: hidden;
+}
+
+.qemu-args-list__list {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
 }
 
 .qemu-args-list__row {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--panel-soft);
-  min-height: 40px;
-  transition: background 160ms ease, border-color 160ms ease;
+  padding: 12px 14px;
+  min-height: 44px;
+  border-bottom: 1px solid var(--line);
+  transition: background 160ms ease;
 }
 
-.qemu-args-list__row--controlled {
-  border-left: 3px solid var(--primary);
+.qemu-args-list__row:last-child,
+.qemu-args-list__row--last {
+  border-bottom: none;
 }
 
-.qemu-args-list__row--custom {
-  border-left: 3px solid transparent;
-}
-
-.qemu-args-list__badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  color: var(--primary);
-  flex-shrink: 0;
-}
-
-.qemu-args-list__binding {
-  font-size: 0.74rem;
-  font-weight: 500;
-  color: var(--muted);
-  flex-shrink: 0;
-  min-width: 56px;
+.qemu-args-list__row:hover {
+  background: var(--panel-muted);
 }
 
 .qemu-args-list__raw {
   flex: 1;
+  min-width: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.82rem;
+  font-size: 0.85rem;
   color: var(--text);
   word-break: break-all;
   cursor: text;
@@ -6908,28 +6932,27 @@ body.platform-darwin .app-shell--desktop .app-shell__top-tools {
   border-radius: 6px;
 }
 
-.qemu-args-list__raw:hover {
-  background: var(--panel-muted);
-}
-
 .qemu-args-list__raw:focus {
-  outline: 2px solid var(--primary-soft);
+  outline: none;
   background: var(--panel-muted);
 }
 
-.qemu-args-list__input {
+.qemu-args-list__input,
+.qemu-args-list__textarea {
   flex: 1;
+  min-width: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.82rem;
+  font-size: 0.85rem;
   color: var(--text);
   background: var(--bg);
   border: 1px solid var(--primary);
   border-radius: 6px;
-  padding: 4px 8px;
-  min-width: 0;
+  padding: 5px 8px;
+  resize: vertical;
 }
 
-.qemu-args-list__input:focus {
+.qemu-args-list__input:focus,
+.qemu-args-list__textarea:focus {
   outline: none;
   box-shadow: 0 0 0 2px var(--primary-soft);
 }
@@ -6952,6 +6975,13 @@ body.platform-darwin .app-shell--desktop .app-shell__top-tools {
 .qemu-args-list__remove-btn:hover {
   background: rgba(169, 58, 85, 0.08);
   color: var(--danger);
+}
+
+.qemu-args-list__empty {
+  padding: 24px 16px;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--muted);
 }
 
 .qemu-args-list__error {

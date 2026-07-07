@@ -8,7 +8,7 @@ const { RuntimeManager } = require('./runtime/RuntimeManager');
 const { UpdateService } = require('./runtime/UpdateService');
 const { WebModeService } = require('./runtime/WebModeService');
 const { ExternalVncViewerService } = require('./runtime/ExternalVncViewerService');
-const { applyControlledEdit, buildArgList, normalizeCustomArgs } = require('./runtime/QemuArgsSync');
+const { applyControlledEdit, buildArgList, normalizeCustomArgs, removeControlledArg } = require('./runtime/QemuArgsSync');
 
 const SETTINGS_FILE = 'settings.json';
 const RECENTS_FILE = 'recents.json';
@@ -971,6 +971,9 @@ const ipcHandlers = {
       args: buildArgList(machine)
     };
   },
+  async getFullQemuCommand(_event, machine) {
+    return getRuntimeManager().getFullQemuCommand(machine);
+  },
   async applyControlledQemuArgEdit(_event, payload) {
     const machine = payload?.machine;
     const bindingKey = payload?.bindingKey;
@@ -980,6 +983,22 @@ const ipcHandlers = {
       return {
         ok: false,
         error: 'Invalid controlled QEMU argument value.'
+      };
+    }
+    return {
+      ok: true,
+      machine: nextMachine,
+      args: buildArgList(nextMachine)
+    };
+  },
+  async removeControlledQemuArg(_event, payload) {
+    const machine = payload?.machine;
+    const bindingKey = payload?.bindingKey;
+    const nextMachine = removeControlledArg(machine, bindingKey);
+    if (!nextMachine) {
+      return {
+        ok: false,
+        error: 'Controlled QEMU argument cannot be removed.'
       };
     }
     return {
@@ -1102,7 +1121,9 @@ const webInvokeHandlers = {
     getRuntimeEnvironment: wrapWebInvoke(ipcHandlers.getRuntimeEnvironment, 'none'),
     getSharedFolderEnvironment: wrapWebInvoke(ipcHandlers.getSharedFolderEnvironment, 'none'),
     buildQemuArgList: wrapWebInvoke(ipcHandlers.buildQemuArgList, 'single'),
+    getFullQemuCommand: wrapWebInvoke(ipcHandlers.getFullQemuCommand, 'single'),
     applyControlledQemuArgEdit: wrapWebInvoke(ipcHandlers.applyControlledQemuArgEdit, 'single'),
+    removeControlledQemuArg: wrapWebInvoke(ipcHandlers.removeControlledQemuArg, 'single'),
     normalizeCustomQemuArgs: wrapWebInvoke(ipcHandlers.normalizeCustomQemuArgs, 'single'),
     previewMachineCommand: wrapWebInvoke(ipcHandlers.previewMachineCommand, 'single'),
     startMachine: wrapWebInvoke(ipcHandlers.startMachine, 'single'),
@@ -1244,7 +1265,9 @@ app.whenReady().then(() => {
   ipcMain.handle('runtime:get-environment', ipcHandlers.getRuntimeEnvironment);
   ipcMain.handle('runtime:get-shared-folder-environment', ipcHandlers.getSharedFolderEnvironment);
   ipcMain.handle('runtime:build-qemu-arg-list', ipcHandlers.buildQemuArgList);
+  ipcMain.handle('runtime:get-full-qemu-command', ipcHandlers.getFullQemuCommand);
   ipcMain.handle('runtime:apply-controlled-qemu-arg-edit', ipcHandlers.applyControlledQemuArgEdit);
+  ipcMain.handle('runtime:remove-controlled-qemu-arg', ipcHandlers.removeControlledQemuArg);
   ipcMain.handle('runtime:normalize-custom-qemu-args', ipcHandlers.normalizeCustomQemuArgs);
   ipcMain.handle('runtime:preview-machine-command', ipcHandlers.previewMachineCommand);
   ipcMain.handle('runtime:start-machine', ipcHandlers.startMachine);
