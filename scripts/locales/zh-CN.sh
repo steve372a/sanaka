@@ -118,11 +118,12 @@ sanaka_i18n_put "package_windows.installer_name" '推荐的 Windows 安装包文
 sanaka_i18n_put "package_linux.deb_name" '推荐的 Linux deb 文件名:'
 
 sanaka_i18n_put "pull.missing_git" '没找到 git。请先安装 Git。'
-sanaka_i18n_put "pull.missing_npm" '没找到 npm。请先安装 Node.js。'
+sanaka_i18n_put "pull.not_git_repo" '这里不是 Git 仓库。'
 sanaka_i18n_put "pull.fetching" '拉取远程最新代码...'
-sanaka_i18n_put "pull.entering_doctor" '进入 doctor 自动检查与修复...'
-sanaka_i18n_put "pull.completed" '完成。现在可以运行: npm start'
+sanaka_i18n_put "pull.remote_missing" '远程分支不存在: %s'
+sanaka_i18n_put "pull.completed" '拉取完成。'
 
+sanaka_i18n_put "push.missing_git" '没找到 git。请先安装 Git。'
 sanaka_i18n_put "push.not_git_repo" '这里不是 Git 仓库。'
 sanaka_i18n_put "push.not_on_branch" '当前不在分支上，先切回一个分支再推。'
 sanaka_i18n_put "push.no_local_changes" '没有本地改动，直接推送。'

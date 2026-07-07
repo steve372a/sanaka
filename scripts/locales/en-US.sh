@@ -118,11 +118,12 @@ sanaka_i18n_put "package_windows.installer_name" 'Suggested Windows installer fi
 sanaka_i18n_put "package_linux.deb_name" 'Suggested Linux deb file name:'
 
 sanaka_i18n_put "pull.missing_git" 'git was not found. Please install Git first.'
-sanaka_i18n_put "pull.missing_npm" 'npm was not found. Please install Node.js first.'
+sanaka_i18n_put "pull.not_git_repo" 'This is not a Git repository.'
 sanaka_i18n_put "pull.fetching" 'Fetching the latest code from origin...'
-sanaka_i18n_put "pull.entering_doctor" 'Running doctor in auto repair mode...'
-sanaka_i18n_put "pull.completed" 'Done. You can now run: npm start'
+sanaka_i18n_put "pull.remote_missing" 'Remote branch does not exist: %s'
+sanaka_i18n_put "pull.completed" 'Pull completed.'
 
+sanaka_i18n_put "push.missing_git" 'git was not found. Please install Git first.'
 sanaka_i18n_put "push.not_git_repo" 'This is not a Git repository.'
 sanaka_i18n_put "push.not_on_branch" 'You are not on a branch. Check out a branch before pushing.'
 sanaka_i18n_put "push.no_local_changes" 'No local changes found. Pushing directly.'
