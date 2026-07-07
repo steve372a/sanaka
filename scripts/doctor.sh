@@ -151,18 +151,18 @@ read_current_config() {
 
   ELECTRON_MIRROR_URL="${ELECTRON_MIRROR:-}"
   if [[ -z "$ELECTRON_MIRROR_URL" ]]; then
-    ELECTRON_MIRROR_URL="$(read_user_npmrc_key "electron_mirror")"
+    ELECTRON_MIRROR_URL="$(read_project_npmrc_key "electron_mirror")"
   fi
 
   BUILDER_BINARIES_MIRROR_URL="${ELECTRON_BUILDER_BINARIES_MIRROR:-}"
   if [[ -z "$BUILDER_BINARIES_MIRROR_URL" ]]; then
-    BUILDER_BINARIES_MIRROR_URL="$(read_user_npmrc_key "electron_builder_binaries_mirror")"
+    BUILDER_BINARIES_MIRROR_URL="$(read_project_npmrc_key "electron_builder_binaries_mirror")"
   fi
 }
 
-read_user_npmrc_key() {
+read_project_npmrc_key() {
   local key="$1"
-  local npmrc_path="$HOME/.npmrc"
+  local npmrc_path="$ROOT_DIR/.npmrc"
   if [[ ! -f "$npmrc_path" ]]; then
     return 0
   fi
@@ -177,10 +177,10 @@ read_user_npmrc_key() {
   ' "$npmrc_path" | tail -n 1
 }
 
-write_user_npmrc_key() {
+write_project_npmrc_key() {
   local key="$1"
   local value="$2"
-  local npmrc_path="$HOME/.npmrc"
+  local npmrc_path="$ROOT_DIR/.npmrc"
   local temp_path
   temp_path="$(mktemp)"
 
@@ -315,9 +315,9 @@ apply_mirrors() {
   local builder_binaries_mirror="$3"
 
   sanaka_section "doctor.writing_mirrors"
-  npm config set registry "$(trim_trailing_slash "$npm_registry")"
-  write_user_npmrc_key "electron_mirror" "$(normalize_with_trailing_slash "$electron_mirror")"
-  write_user_npmrc_key "electron_builder_binaries_mirror" "$(normalize_with_trailing_slash "$builder_binaries_mirror")"
+  npm config set --location=project registry "$(trim_trailing_slash "$npm_registry")"
+  write_project_npmrc_key "electron_mirror" "$(normalize_with_trailing_slash "$electron_mirror")"
+  write_project_npmrc_key "electron_builder_binaries_mirror" "$(normalize_with_trailing_slash "$builder_binaries_mirror")"
   export ELECTRON_MIRROR="$(normalize_with_trailing_slash "$electron_mirror")"
   export ELECTRON_BUILDER_BINARIES_MIRROR="$(normalize_with_trailing_slash "$builder_binaries_mirror")"
   sanaka_log "doctor.set_npm_registry" "$(trim_trailing_slash "$npm_registry")"
