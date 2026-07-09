@@ -5,8 +5,8 @@ source "$(cd "$(dirname "$0")" && pwd)/lib/i18n.sh"
 sanaka_load_i18n
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DEFAULT_QEMU_BUILD_DIR="/Volumes/sks/src/qemu-11.0.1/build-sanaka"
-QEMU_BUILD_DIR="${1:-$DEFAULT_QEMU_BUILD_DIR}"
+DEFAULT_QEMU_BUILD_DIR="$HOME/sanaka/qemu/macos"
+QEMU_BUILD_DIR="${1:-${SANAKA_QEMU_BUILD_DIR:-$DEFAULT_QEMU_BUILD_DIR}}"
 OUTPUT_ROOT="$REPO_ROOT/release"
 DMG_BACKGROUND="$REPO_ROOT/build/dmg.png"
 CREATE_DMG_BIN="${CREATE_DMG_BIN:-/opt/homebrew/opt/create-dmg/bin/create-dmg}"
