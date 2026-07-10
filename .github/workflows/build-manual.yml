@@ -1,0 +1,126 @@
+name: Build Release Artifacts
+
+on:
+  push:
+    tags:
+      - '*'
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-x64:
+    name: Windows x64 EXE
+    runs-on: windows-latest
+    env:
+      SANAKA_QEMU_WIN_DIR: ${{ github.workspace }}\qemu\win
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows installer
+        run: npm run pack:win -- --x64
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanaka-windows-x64
+          path: |
+            release/*.exe
+            release/*.yml
+          if-no-files-found: error
+
+  build-macos-aarch64:
+    name: macOS aarch64 DMG
+    runs-on: macos-15
+    env:
+      SANAKA_QEMU_BUILD_DIR: ${{ github.workspace }}/qemu/macos
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Build macOS dmg
+        run: bash ./scripts/quick-build-macos-app.sh "$SANAKA_QEMU_BUILD_DIR"
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanaka-macos-aarch64
+          path: |
+            release/*.dmg
+          if-no-files-found: error
+
+  build-linux-x64:
+    name: Linux x64 DEB
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Linux deb
+        run: npx electron-builder --linux deb --x64
+
+      - name: Upload Linux x64 artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanaka-linux-x64-deb
+          path: |
+            release/*.deb
+          if-no-files-found: error
+
+  build-linux-aarch64:
+    name: Linux aarch64 DEB
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Linux deb
+        run: npx electron-builder --linux deb --arm64
+
+      - name: Upload Linux aarch64 artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanaka-linux-aarch64-deb
+          path: |
+            release/*.deb
+          if-no-files-found: error

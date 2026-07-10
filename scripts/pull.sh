@@ -51,8 +51,6 @@ cleanup() {
 
 trap cleanup EXIT
 
-bash "$ROOT_DIR/scripts/doctor.sh" --auto --no-build || true
-
 TEMP_HELPER="$(mktemp "${TMPDIR:-/tmp}/sanaka-pull.XXXXXX.sh")"
 cat >"$TEMP_HELPER" <<'EOF'
 #!/usr/bin/env bash
@@ -108,8 +106,5 @@ chmod +x "$TEMP_HELPER"
 
 sanaka_log "pull.fetching"
 bash "$TEMP_HELPER" "$ROOT_DIR" "$TARGET_BRANCH"
-
-sanaka_log "pull.entering_doctor"
-bash "$ROOT_DIR/scripts/doctor.sh" --auto
 
 sanaka_log "pull.completed"
