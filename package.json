@@ -11,9 +11,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "pack:mac": "bash ./scripts/package-sanaka-macos.sh /Volumes/sks/src/qemu-11.0.1/build-sanaka",
+    "pack:mac": "bash ./scripts/package-sanaka-macos.sh",
     "pack:win": "npx electron-builder --win",
-    "pack:win:dir": "bash ./scripts/package-sanaka-windows.sh",
+    "pack:win:dir": "npx electron-builder --dir --win",
     "pack:linux": "npx electron-builder --linux"
   },
   "keywords": [

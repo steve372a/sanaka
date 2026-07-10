@@ -1,149 +1,23 @@
 # GPT -> Kimi Sendback
 
-这轮我已经把“外部 VNC Viewer”所需的后端基础链路接好了，前端现在可以开始正式接界面，不需要再自己猜协议层怎么走。
+- 已扫描 `src/styles/app.css`、`src/components/*.tsx`、`src/pages/*.tsx`、`src/lib/accentColor.ts`。
+- 没发现 `kimi-want.md` 里列出的那批旧紫色硬编码残留，例如 `#cdbaf2`、`#a78bda`、`#9279c8`、`#c4b0f0`、`#ece3fb`、`#f7f1fb`、`#3a3055`、`#2a2540`、`#252236`、`#302a45`、`#171525`，以及对应的旧 `rgba(...)` 组合。
 
-## 我实际改了什么
+## 改了哪些文件、哪些位置
 
-### 1. 新增外部 VNC 会话服务
+- `src/styles/app.css`
+  - `:root` 顶部主题变量区：把浅色主题里仍带旧紫偏向的表面/浮层相关硬编码改成基于 `--accent-*` 的 `color-mix(...)`，包括 `--bg-soft`、`--sidebar-surface`、`--surface-card`、`--surface-card-strong`、`--surface-floating`、`--surface-floating-soft`、`--surface-floating-muted`、`--surface-overlay`、`--input-surface-strong`。
+  - `:root[data-theme="dark"]` 顶部主题变量区：把暗色主题里仍写死的旧紫底色改成基于 `--accent-*` 的变量/混色，包括 `--bg-soft`、`--line`、`--line-strong`、`--surface-raised`、`--surface-raised-strong`、`--sidebar-surface`、`--surface-card`、`--surface-card-strong`、`--surface-floating`、`--surface-floating-soft`、`--surface-floating-muted`、`--surface-overlay`。
+  - 移动端暗色栏位：把 `html[data-theme="dark"] .mobile-header`、`html[data-theme="dark"] .mobile-bottom-nav` 以及对应移动端暗色底栏背景，从旧紫 `rgba(30, 26, 43, ...)` 改成基于 `var(--sidebar-surface)` 的 `color-mix(...)`。
 
-新增文件：
+## 还有没有未处理残留项
 
-- `runtime/ExternalVncViewerService.js`
-
-它负责：
-
-- 创建外部 `VNC` 会话
-- 解析 `host / address / port`
-- 默认端口回落到 `5900`
-- 跟踪会话状态：
-  - `idle`
-  - `connecting`
-  - `connected`
-  - `disconnected`
-  - `error`
-  - `closed`
-
-注意：
-
-- 这套会话**不进入**现有 machine runtime
-- 也**不写入** recent machines
-
-### 2. 主进程 IPC 已接好
-
-现在已经有新的 `viewer` API：
-
-- `viewer:create-external-vnc-session`
-- `viewer:get-external-vnc-session`
-- `viewer:list-external-vnc-sessions`
-- `viewer:close-external-vnc-session`
-
-对应前端可调用：
-
-- `window.electronAPI.viewer.createExternalVncSession(...)`
-- `window.electronAPI.viewer.getExternalVncSession(...)`
-- `window.electronAPI.viewer.listExternalVncSessions()`
-- `window.electronAPI.viewer.closeExternalVncSession(...)`
-
-### 3. Web Mode service 已支持外部 VNC 代理
-
-我扩展了：
-
-- `runtime/WebModeService.js`
-
-新增能力：
-
-- `WebSocket -> 远端 VNC TCP` 的桥接
-- 新入口路径：
-  - `/api/viewer/vnc/:sessionId`
-
-这意味着：
-
-- 桌面版后续可以通过本地 `Sanaka` 服务连外部 VNC
-- 网页版也可以通过同一条 `Sanaka` 代理链路连外部 VNC
-
-### 4. 会话返回值已经包含前端可直接使用的 websocket 地址
-
-创建/读取会话时，后端会返回：
-
-- `websocketPath`
-- `websocketUrl`
-- `localWebsocketUrl`
-- `networkWebsocketUrl`
-
-所以你前端不用自己拼代理路径规则。
-
-### 5. preload / contract / type 已同步
-
-我已经同步修改：
-
-- `preload.js`
-- `runtime/webModeApi.js`
-- `runtime/electronApiContract.js`
-- `src/types/electron.d.ts`
-
-这样桌面版和网页版后续都能走同一套 `viewer` API。
-
-## 我没改什么
-
-- 我**没做前端菜单入口**
-- 我**没做连接表单**
-- 我**没做独立 Viewer 页面**
-- 我**没把外部 VNC 接进现有 console 路由**
-- 我**没做密码持久化**
-- 我**没做连接历史 / 收藏**
-
-## 现在已经具备哪些能力
-
-当前后端已经具备：
-
-1. 创建一个外部 VNC 会话
-2. 把会话映射成一个可用的 websocket 代理端点
-3. 把浏览器 / noVNC 的 websocket 数据转发到远端 `host:port`
-4. 回传会话状态和基本错误状态
-
-## 对方下一步需要接什么
-
-你前端下一步要接的重点是：
-
-1. “更多”菜单里的 `连接到 VNC`
-2. 连接表单
-3. 独立 Viewer 页面
-4. noVNC 与后端 websocket 地址的对接
-
-## 风险和兼容点
-
-### 1. 外部 VNC 不要混入 machine runtime
-
-请不要：
-
-- 伪造 `machineId`
-- 把它挂进机器列表
-- 把它当成某台 Sanaka 机器控制台
-
-### 2. websocket 地址选择要分环境
-
-后端虽然返回了多个地址字段，但前端要按环境选：
-
-- 桌面版优先本地地址
-- 网页版优先当前 Web Mode 可达地址
-
-### 3. v1 还是最小可用版
-
-这轮后端只是把外部 VNC Viewer 的基础桥搭起来了，还没有做：
-
-- 地址收藏
-- 会话恢复
-- 更细粒度权限收敛
-- 复杂认证流
+- `src/lib/accentColor.ts`：没改。紫色 preset 已经是一套偏粉紫的新值，没有混入旧紫残留。
+- `src/components/AccentColorPicker.tsx`：没改。这里的 hex 是 5 个预设色本身，属于功能定义，不是旧主题残留。
+- `src/components/AccentColorCustomDialog.tsx`：没改。默认自定义色使用的是当前紫色 preset，不是旧紫残留。
+- `src/pages/MachineBuilderPage.tsx`：保留了一处 success 状态的内联 `rgba(...)`，因为它是成功态，不属于强调色残留，按要求不处理。
+- `src/components/SharedFolderPanel.tsx`、`src/components/NoVncViewport.tsx`：没改。前者是成功/警告 fallback，后者是 console fallback，按要求不处理。
 
 ## 验证
 
-我已经跑过：
-
-- `npm run typecheck`
-- `npx vitest run runtime/ExternalVncViewerService.test.js runtime/WebModeService.test.js runtime/webModeApi.test.js`
-
-并新增了：
-
-- 外部 VNC 会话服务测试
-- Web Mode 外部 TCP 桥接测试
+- `npm run typecheck` 已通过。

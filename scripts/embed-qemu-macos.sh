@@ -11,10 +11,10 @@ fi
 
 BUILD_DIR="$(cd "$1" && pwd)"
 APP_PATH="$2"
-DO_SIGN="false"
+DO_ADHOC_SIGN="false"
 
-if [[ "${3:-}" == "--sign" ]]; then
-  DO_SIGN="true"
+if [[ "${3:-}" == "--adhoc-sign" || "${3:-}" == "--sign" ]]; then
+  DO_ADHOC_SIGN="true"
 fi
 
 if [[ ! -d "$APP_PATH" ]]; then
@@ -28,6 +28,16 @@ FRAMEWORKS_DIR="$APP_PATH/Contents/Frameworks"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEFAULT_AARCH64_ENTITLEMENTS="$SCRIPT_DIR/../build/qemu-aarch64.entitlements.plist"
 AARCH64_ENTITLEMENTS="${SANAKA_QEMU_AARCH64_ENTITLEMENTS:-$DEFAULT_AARCH64_ENTITLEMENTS}"
+SOURCE_QEMU_BIN_DIR="$BUILD_DIR"
+SOURCE_QEMU_SHARE_DIR=""
+
+if [[ -d "$BUILD_DIR/bin" ]]; then
+  SOURCE_QEMU_BIN_DIR="$BUILD_DIR/bin"
+fi
+
+if [[ -d "$BUILD_DIR/share/qemu" ]]; then
+  SOURCE_QEMU_SHARE_DIR="$BUILD_DIR/share/qemu"
+fi
 
 rm -rf "$QEMU_BIN_DIR" "$QEMU_SHARE_DIR"
 mkdir -p "$QEMU_BIN_DIR" "$QEMU_SHARE_DIR" "$FRAMEWORKS_DIR"
@@ -66,11 +76,25 @@ copy_binary() {
   chmod u+w "$QEMU_BIN_DIR/$target_name"
 }
 
+resolve_system_binary_source() {
+  local arch="$1"
+
+  if [[ -f "$SOURCE_QEMU_BIN_DIR/qemu-system-$arch-unsigned" ]]; then
+    printf '%s\n' "$SOURCE_QEMU_BIN_DIR/qemu-system-$arch-unsigned"
+    return 0
+  fi
+
+  if [[ -f "$SOURCE_QEMU_BIN_DIR/qemu-system-$arch" ]]; then
+    printf '%s\n' "$SOURCE_QEMU_BIN_DIR/qemu-system-$arch"
+    return 0
+  fi
+
+  return 1
+}
+
 for arch in "${SYSTEM_TARGETS[@]}"; do
-  if [[ -f "$BUILD_DIR/qemu-system-$arch-unsigned" ]]; then
-    copy_binary "$BUILD_DIR/qemu-system-$arch-unsigned" "qemu-system-$arch"
-  elif [[ -f "$BUILD_DIR/qemu-system-$arch" ]]; then
-    copy_binary "$BUILD_DIR/qemu-system-$arch" "qemu-system-$arch"
+  if source_binary="$(resolve_system_binary_source "$arch")"; then
+    copy_binary "$source_binary" "qemu-system-$arch"
   else
     sanaka_printf_ln "embed_macos.missing_system_binary" "$arch" "$BUILD_DIR" >&2
     exit 1
@@ -78,8 +102,8 @@ for arch in "${SYSTEM_TARGETS[@]}"; do
 done
 
 for tool in qemu-img; do
-  if [[ -f "$BUILD_DIR/$tool" ]]; then
-    copy_binary "$BUILD_DIR/$tool" "$tool"
+  if [[ -f "$SOURCE_QEMU_BIN_DIR/$tool" ]]; then
+    copy_binary "$SOURCE_QEMU_BIN_DIR/$tool" "$tool"
   fi
 done
 
@@ -100,7 +124,11 @@ if [[ -d "$BUILD_DIR/pc-bios" ]]; then
     edk2-x86_64-secure-code.fd
 fi
 
-QEMU_SHARE_SOURCE="$(find_qemu_share_source || true)"
+QEMU_SHARE_SOURCE="${SOURCE_QEMU_SHARE_DIR:-}"
+
+if [[ -z "$QEMU_SHARE_SOURCE" ]]; then
+  QEMU_SHARE_SOURCE="$(find_qemu_share_source || true)"
+fi
 
 if [[ -n "$QEMU_SHARE_SOURCE" ]]; then
   copy_runtime_firmware_if_present "$QEMU_SHARE_SOURCE" \
@@ -227,7 +255,7 @@ while IFS= read -r binary; do
   rewrite_binary_deps "$binary"
 done < <(find "$QEMU_BIN_DIR" -type f -perm -111 2>/dev/null)
 
-if [[ "$DO_SIGN" == "true" ]]; then
+if [[ "$DO_ADHOC_SIGN" == "true" ]]; then
   while IFS= read -r dylib; do
     codesign --force --sign - "$dylib"
   done < <(find "$FRAMEWORKS_DIR" -maxdepth 1 -type f -name '*.dylib' | sort)

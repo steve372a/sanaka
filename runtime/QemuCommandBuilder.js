@@ -494,7 +494,7 @@ class QemuCommandBuilder {
     if (!machine.system?.machine_type || machine.system.machine_type === 'none') {
       throw new Error('Machine type is not configured yet.');
     }
-    if (!machine.display?.gpu || machine.display.gpu === 'none') {
+    if (!machine.display?.gpu) {
       throw new Error('Machine display device is not configured yet.');
     }
 
@@ -556,7 +556,9 @@ class QemuCommandBuilder {
       }
     }
 
-    args.push(...buildDisplayArgs(guestArch, machine.display.gpu));
+    if (machine.display.gpu !== 'none') {
+      args.push(...buildDisplayArgs(guestArch, machine.display.gpu));
+    }
 
     const cdromAttachment = resolveCdromAttachment(guestArch, machineType);
     args.push('-drive', `if=none,id=cd0,media=cdrom,readonly=on,file=${normalizeQemuFilePath(machine.media?.iso || '', host.platform)}`);

@@ -539,7 +539,6 @@ export function AppHeaderWeb({ onLogoClick }: AppHeaderWebProps) {
       {renameModal.mounted && (
         <div className={renameModal.visible ? 'modal-backdrop modal-backdrop--visible' : 'modal-backdrop'} role="presentation" onClick={() => setRenameTarget(null)}>
           <div className={renameModal.visible ? 'modal-card modal-card--visible' : 'modal-card'} role="dialog" aria-modal="true" aria-labelledby="rename-modal-title" onClick={(event) => event.stopPropagation()}>
-            <div className="brand-orb brand-orb--modal" />
             <h2 id="rename-modal-title" style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '0 0 10px 0', fontSize: '1.25rem' }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ width: '24px', height: '24px', color: 'var(--primary-strong)' }}>
                 <path d="M11.5 15H18" />

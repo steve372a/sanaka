@@ -20,6 +20,17 @@ export const defaultSettings: AppSettings = {
     brandedHero: true,
     advancedConsole: true,
     protocolInspector: false
+  },
+  accentColor: {
+    mode: 'preset',
+    preset: 'purple',
+    custom: {
+      lightPrimary: '#C678FF',
+      lightSurface: '#F7EFFF',
+      darkPrimary: '#D4A3FF',
+      darkSurface: '#2E1F3F'
+    },
+    templates: []
   }
 };
 

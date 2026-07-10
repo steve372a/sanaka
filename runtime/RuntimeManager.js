@@ -7,7 +7,14 @@ const { parse: parseToml } = require('smol-toml');
 const { QemuDetector } = require('./QemuDetector');
 const { RuntimeRegistry } = require('./RuntimeRegistry');
 const { QmpClient } = require('./QmpClient');
-const { QemuCommandBuilder, deriveStableMacAddress } = require('./QemuCommandBuilder');
+const {
+  QemuCommandBuilder,
+  deriveStableMacAddress,
+  resolveBinaryKey,
+  tokenizeUserArgs,
+  splitAdvancedUserArgs
+} = require('./QemuCommandBuilder');
+const { CONTROLLED_BINDINGS, splitCustomArgs } = require('./QemuArgsSync');
 const { ClipboardBridgeService } = require('./ClipboardBridgeService');
 const { ClipboardBootstrapService, DEFAULT_BOOTSTRAP_PORT, normalizeMacAddress } = require('./ClipboardBootstrapService');
 const { IsoImageService } = require('./IsoImageService');
@@ -219,6 +226,11 @@ function shellQuote(argument) {
   return `"${value.replace(/(["\\$`])/g, '\\$1')}"`;
 }
 
+function isHostForwardExtra(raw) {
+  const value = String(raw || '').trim();
+  return value.startsWith('hostfwd=') || value.startsWith('guestfwd=');
+}
+
 function pickPreferredStartupError({ stderr = '', error = null, exitCode = null }) {
   const normalizedStderr = String(stderr || '').trim();
   if (normalizedStderr) {
@@ -383,6 +395,42 @@ class RuntimeManager {
         port: qmpBase.port || null
       },
       environment
+    };
+  }
+
+  async getFullQemuCommand(machine) {
+    const environment = await this.detectQemu();
+    const machineId = String(machine?.id || 'preview-machine');
+    const runtimeDir = path.join(this.app.getPath('userData'), 'runtime-preview', machineId);
+    await fsPromises.mkdir(runtimeDir, { recursive: true });
+
+    const proxiedMachine = await this.#resolveMachineLaunchPaths(machine, runtimeDir, null);
+
+    const qmpBase = getQmpAddress(this.platform, runtimeDir, machineId);
+    if (qmpBase.transport === 'tcp') {
+      qmpBase.port = 47000;
+    }
+
+    const buildResult = this.builder.build({
+      machine: proxiedMachine,
+      environment,
+      runtimePaths: {
+        runtimeDir,
+        qmp: qmpBase
+      },
+      displayConfig: {
+        port: 5901,
+        websocketPort: 5700,
+        displayNumber: 1
+      },
+      host: {
+        platform: this.platform,
+        arch: this.arch
+      }
+    });
+
+    return {
+      args: this.#buildFullQemuCommandArgs(machine, environment, buildResult)
     };
   }
 
@@ -1192,6 +1240,175 @@ class RuntimeManager {
       log
     });
     return result.qemuPath || sourcePath;
+  }
+
+  #buildFullQemuCommandArgs(machine, environment, buildResult) {
+    const rawCustomLines = splitCustomArgs(machine?.advanced?.qemu_args || '').filter((line) => !isHostForwardExtra(line));
+    const customTokenGroups = rawCustomLines.map((line, customIndex) => ({
+      customIndex,
+      tokens: tokenizeUserArgs(line)
+    }));
+    const flattenedCustomTokens = customTokenGroups.flatMap((group) =>
+      group.tokens.map((token, tokenIndex) => ({
+        raw: token,
+        customIndex: group.customIndex,
+        tokenIndex
+      }))
+    );
+
+    const tokenizedCustomArgs = tokenizeUserArgs(machine?.advanced?.qemu_args || '');
+    const { passthroughArgs } = splitAdvancedUserArgs(tokenizedCustomArgs);
+    const customStartIndex = Math.max(0, buildResult.args.length - passthroughArgs.length);
+    const items = [
+      {
+        id: 'binary',
+        raw: buildResult.binaryPath || this.#guessQemuBinaryPath(machine, environment),
+        isCustom: false,
+        editable: false
+      }
+    ];
+
+    let customCursor = 0;
+    let generatedIndex = 0;
+    while (generatedIndex < buildResult.args.length) {
+      const raw = buildResult.args[generatedIndex];
+
+      if (generatedIndex >= customStartIndex) {
+        const customToken = flattenedCustomTokens[customCursor];
+        items.push({
+          id: `custom:${customToken?.customIndex ?? customCursor}:${customToken?.tokenIndex ?? 0}`,
+          raw,
+          isCustom: true,
+          editable: false,
+          customIndex: customToken?.customIndex ?? customCursor
+        });
+        customCursor += 1;
+        generatedIndex += 1;
+        continue;
+      }
+
+      const paired = this.#classifyGeneratedCommandPair(buildResult.args, generatedIndex);
+      if (paired) {
+        items.push({
+          id: `generated:${generatedIndex}:flag`,
+          raw: paired.flag,
+          isCustom: false,
+          editable: false
+        });
+        items.push({
+          id: `generated:${generatedIndex}:value`,
+          raw: paired.value,
+          isCustom: false,
+          editable: true,
+          removable: Boolean(paired.removable),
+          bindingKey: paired.bindingKey,
+          editPrefix: paired.flag
+        });
+        generatedIndex += 2;
+        continue;
+      }
+
+      const single = this.#classifyGeneratedSingleArg(buildResult.args, generatedIndex);
+      if (single) {
+        items.push({
+          id: `generated:${generatedIndex}`,
+          raw,
+          isCustom: false,
+          editable: Boolean(single.editable),
+          removable: Boolean(single.removable),
+          bindingKey: single.bindingKey,
+          editPrefix: single.editPrefix
+        });
+        generatedIndex += 1;
+        continue;
+      }
+
+      items.push({
+        id: `generated:${generatedIndex}`,
+        raw,
+        isCustom: false,
+        editable: false
+      });
+      generatedIndex += 1;
+    }
+
+    return items;
+  }
+
+  #classifyGeneratedCommandPair(args, index) {
+    const flag = args[index];
+    const value = args[index + 1];
+    if (typeof value !== 'string') {
+      return null;
+    }
+
+    if (flag === '-name') {
+      return { flag, value, bindingKey: CONTROLLED_BINDINGS.title };
+    }
+    if (flag === '-machine') {
+      return { flag, value, bindingKey: CONTROLLED_BINDINGS.machineType };
+    }
+    if (flag === '-m') {
+      return { flag, value, bindingKey: CONTROLLED_BINDINGS.memory };
+    }
+    if (flag === '-smp') {
+      return { flag, value, bindingKey: CONTROLLED_BINDINGS.cpu };
+    }
+    if (flag === '-accel') {
+      return { flag, value, bindingKey: CONTROLLED_BINDINGS.accel };
+    }
+    if (flag === '-boot') {
+      return { flag, value, bindingKey: CONTROLLED_BINDINGS.boot };
+    }
+    if (flag === '-vga') {
+      return { flag, value, bindingKey: CONTROLLED_BINDINGS.gpu, removable: true };
+    }
+    if (flag === '-netdev' && (value.startsWith('user,') || value.startsWith('bridge,'))) {
+      return { flag, value, bindingKey: CONTROLLED_BINDINGS.networkMode, removable: true };
+    }
+    if (flag === '-device' && value.includes('netdev=net0')) {
+      return { flag, value, bindingKey: CONTROLLED_BINDINGS.networkCard, removable: true };
+    }
+    if (flag === '-device') {
+      const device = value.split(',')[0];
+      if (device === 'intel-hda' || device === 'AC97' || device === 'sb16' || device === 'virtio-sound-pci') {
+        return { flag, value, bindingKey: CONTROLLED_BINDINGS.soundCard, removable: true };
+      }
+      if (device === 'virtio-gpu-pci' || device === 'virtio-vga') {
+        return { flag, value, bindingKey: CONTROLLED_BINDINGS.gpu, removable: true };
+      }
+      if (device === 'usb-tablet') {
+        return { flag, value, bindingKey: CONTROLLED_BINDINGS.usbTablet, removable: true };
+      }
+    }
+    if (flag === '-usb') {
+      return { flag, value, bindingKey: CONTROLLED_BINDINGS.usbTablet, removable: true };
+    }
+
+    return null;
+  }
+
+  #classifyGeneratedSingleArg(args, index) {
+    const flag = args[index];
+
+    if (flag === '-usb') {
+      return {
+        bindingKey: CONTROLLED_BINDINGS.usbTablet,
+        removable: true,
+        editable: false
+      };
+    }
+
+    return null;
+  }
+
+  #guessQemuBinaryPath(machine, environment) {
+    const binaryKey = resolveBinaryKey(machine?.system?.arch);
+    const binaryPath = environment?.binaries?.[binaryKey]?.path;
+    if (binaryPath) {
+      return binaryPath;
+    }
+    return binaryKey ? `qemu-system-${binaryKey}` : 'qemu-system';
   }
 
   #resolveClipboardSessionByMac(machineMac) {

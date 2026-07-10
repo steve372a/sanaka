@@ -8,8 +8,28 @@ sanaka_load_i18n
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
+usage() {
+  cat <<'EOF'
+Usage:
+  bash scripts/pull.sh main
+  bash scripts/pull.sh dev
+  bash scripts/pull.sh <branch>
+
+Behavior:
+  - Fetch origin
+  - Switch to the target branch
+  - If the local branch is missing, create it from origin/<branch>
+  - Hard reset the local branch to origin/<branch>
+EOF
+}
+
 TARGET_BRANCH="${1:-main}"
 TEMP_HELPER=""
+
+if [[ "${TARGET_BRANCH}" == "--help" || "${TARGET_BRANCH}" == "-h" ]]; then
+  usage
+  exit 0
+fi
 
 sanaka_log "common.current_directory" "$ROOT_DIR"
 
@@ -18,8 +38,8 @@ if ! command -v git >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! command -v npm >/dev/null 2>&1; then
-  sanaka_log "pull.missing_npm"
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  sanaka_log "pull.not_git_repo"
   exit 1
 fi
 

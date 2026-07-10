@@ -245,12 +245,17 @@ export interface RuntimeMachineState {
 export type QemuArgSource = 'controlled' | 'custom';
 
 export type ControlledQemuBindingKey =
+  | 'machine.title'
+  | 'system.machine_type'
   | 'system.memory_mib'
   | 'system.cpu_cores'
   | 'system.accelerator'
   | 'system.boot_order'
+  | 'system.sound_card'
+  | 'display.gpu'
   | 'network.mode'
-  | 'network.card';
+  | 'network.card'
+  | 'peripherals.usb_tablet';
 
 export interface QemuArgItem {
   id: string;
@@ -258,6 +263,17 @@ export interface QemuArgItem {
   source: QemuArgSource;
   bindingKey?: ControlledQemuBindingKey;
   editable: boolean;
+}
+
+export interface FullQemuCommandArgItem {
+  id: string;
+  raw: string;
+  isCustom: boolean;
+  editable: boolean;
+  removable?: boolean;
+  bindingKey?: ControlledQemuBindingKey;
+  editPrefix?: string;
+  customIndex?: number;
 }
 
 export interface RuntimeWebAudioState {
@@ -437,10 +453,15 @@ export interface ElectronApi {
     getRuntimeEnvironment: () => Promise<QemuEnvironment>;
     getSharedFolderEnvironment?: () => Promise<SharedFolderEnvironment>;
     buildQemuArgList?: (machine: import('../domain/schemas').SakaMachine) => Promise<{ args: QemuArgItem[] }>;
+    getFullQemuCommand?: (machine: import('../domain/schemas').SakaMachine) => Promise<{ args: FullQemuCommandArgItem[] }>;
     applyControlledQemuArgEdit?: (payload: {
       machine: import('../domain/schemas').SakaMachine;
       bindingKey: ControlledQemuBindingKey;
       raw: string;
+    }) => Promise<{ ok: boolean; machine?: import('../domain/schemas').SakaMachine; args?: QemuArgItem[]; error?: string }>;
+    removeControlledQemuArg?: (payload: {
+      machine: import('../domain/schemas').SakaMachine;
+      bindingKey: ControlledQemuBindingKey;
     }) => Promise<{ ok: boolean; machine?: import('../domain/schemas').SakaMachine; args?: QemuArgItem[]; error?: string }>;
     normalizeCustomQemuArgs?: (payload: {
       machine: import('../domain/schemas').SakaMachine;

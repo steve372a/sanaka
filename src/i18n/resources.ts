@@ -213,7 +213,7 @@ export const resources = {
         custom: '自定义'
       },
       bootOptions: {
-        none: '默认',
+        none: 'none',
         cdrom: 'CD-ROM（光盘）',
         disk: 'Disk（硬盘）',
         floppy: 'Floppy（软盘）'
@@ -386,6 +386,12 @@ export const resources = {
       theme: '主题',
       light: '浅色',
       dark: '深夜',
+      accentColor: '强调色',
+      accentColorCustom: '自定义',
+      saveColorTemplate: '保存为模板',
+      savedColorTemplates: '已保存模板',
+      colorTemplateNamePlaceholder: '输入模板名称',
+      createColorTemplate: '创建',
       savePath: '默认机器目录',
       webModePort: '网页模式端口',
       webModePortHint: '默认端口为 25895。修改后，下次打开网页模式时生效。',
@@ -396,6 +402,7 @@ export const resources = {
       fileAssociationHint: '打包版本会在这里提供双击打开虚拟机配置的系统关联。',
       importTemplate: '导入模板',
       templateImported: '已导入模板',
+      templateCount: '{{count}} 个模板',
       generalDescription: '设置语言和基础使用偏好。',
       filesDescription: '设置默认机器目录和打开方式。',
       runtimeDescription: '这些默认值只影响新建虚拟机的正式显示路径。',
@@ -796,7 +803,7 @@ export const resources = {
         custom: 'Custom'
       },
       bootOptions: {
-        none: 'Default',
+        none: 'none',
         cdrom: 'CD-ROM (Optical Disc)',
         disk: 'Disk (Hard Drive)',
         floppy: 'Floppy (Floppy Disk)'
@@ -969,6 +976,12 @@ export const resources = {
       theme: 'Theme',
       light: 'Light',
       dark: 'Dark',
+      accentColor: 'Accent Color',
+      accentColorCustom: 'Custom',
+      saveColorTemplate: 'Save as Template',
+      savedColorTemplates: 'Saved Templates',
+      colorTemplateNamePlaceholder: 'Enter template name',
+      createColorTemplate: 'Create',
       savePath: 'Default Machine Location',
       webModePort: 'Web Mode Port',
       webModePortHint: 'The default port is 25895. Changes take effect the next time web mode starts.',
@@ -979,6 +992,7 @@ export const resources = {
       fileAssociationHint: 'Packaged builds will expose system association for opening machine configs from the desktop.',
       importTemplate: 'Import Template',
       templateImported: 'Imported Template',
+      templateCount: '{{count}} templates',
       generalDescription: 'Set language and basic preferences.',
       filesDescription: 'Choose default save location and opening behavior.',
       runtimeDescription: 'These defaults only affect the production display path for newly created machines.',

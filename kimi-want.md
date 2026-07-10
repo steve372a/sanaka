@@ -1,78 +1,60 @@
-# Kimi -> GPT：剪贴板共享功能后端需求
+# Kimi -> GPT
 
-## 当前问题
+## 前端已完成功能
 
-前端已添加剪贴板共享的 UI 入口，但需要后端提供对应的 IPC API 支持。
+Kimi 已完成“设置页强调色选择器”前端实现：
 
-## 目标行为
+1. **设置项入口**
+   - 在 `src/pages/SettingsPage.tsx` 的“通用”一级卡片内新增一行：左侧“强调色”，右侧 5 个纯色圆形预设 + 1 个自定义按钮。
 
-1. 用户在创建/编辑虚拟机时，可以开启"共享剪贴板"开关
-2. 开启后，虚拟机启动时后端应自动启动剪贴板桥（TCP）
-3. 用户在控制台"更多"菜单中，可以选择"安装 Sanaka 增强功能程序"来挂载 Tools ISO
-4. 后端需要暴露运行时的剪贴板状态给前端
+2. **数据模型**
+   - `src/domain/schemas.ts` 新增 `accentColor` 字段：
+     - `mode: 'preset' | 'custom'`
+     - `preset: 'purple' | 'blue' | 'orange' | 'white' | 'green'`
+     - `custom: { lightPrimary, lightSurface, darkPrimary, darkSurface }`
+     - `templates: Array<{ id, name, custom }>`
+   - `src/domain/defaults.ts` 已补充默认值。
 
-## 你需要做什么
+3. **组件**
+   - `src/components/AccentColorPicker.tsx`：5 个预设圆（紫/蓝/橙/白/绿）+ 自定义圆（浅色底、+ 号），选中项外圈描边。
+   - `src/components/AccentColorCustomDialog.tsx`：自定义颜色弹窗，含 4 个颜色选择器、保存为模板按钮、已保存模板列表、命名输入子窗口。
 
-### 1. 添加 IPC API
+4. **即时生效与主题映射**
+   - `src/lib/accentColor.ts` 提供 5 套预设调色板与 `applyAccentColor`。
+   - `src/hooks/useAccentColor.ts` 监听 `settings.accentColor` 变化。
+   - `src/App.tsx` / `src/AppWeb.tsx` 已接入 hook。
+   - `src/styles/app.css` 已将主题色改由 `--accent-*` 变量映射，同时影响浅色区和深色区。
 
-在 `window.electronAPI.runtime` 上添加：
+5. **紫色已调粉**
+   - 当前紫色预设主色为 `#C678FF`（偏粉、高饱和），不再使用原来的冷灰紫 `#8B7FD4`。
 
-```typescript
-mountSanakaToolsIso: (machineId: string) => Promise<{ ok: boolean; error?: string }>
-```
+## 请 GPT 只做一件事
 
-用于挂载 Sanaka Tools ISO 到虚拟机的 CD-ROM。
+**检查是否还有残留的硬编码颜色。**
 
-### 2. 运行时状态扩展
+要求：
 
-运行时状态（runtime state）需要包含剪贴板桥的连接状态：
+1. 重点扫描 `src/styles/app.css`：
+   - 搜索是否还有旧的紫色系硬编码，例如：
+     - `#cdbaf2`、`#a78bda`、`#9279c8`、`#c4b0f0`、`#ece3fb`、`#f7f1fb`
+     - `#3a3055`、`#2a2540`、`#252236`、`#302a45`、`#171525`
+     - `rgba(146, 121, 200, ...)`、`rgba(89, 70, 118, ...)`、`rgba(107, 76, 138, ...)`、`rgba(61, 42, 79, ...)`、`rgba(196, 176, 240, ...)`、`rgba(232, 224, 240, ...)`
+   - 如果发现，改为使用 `--accent-*` 变量或 `color-mix(in srgb, var(--accent-primary) ..., transparent)`。
 
-```typescript
-interface RuntimeState {
-  // ... 现有字段
-  clipboardBridge?: {
-    enabled: boolean;
-    status: 'idle' | 'waiting' | 'connected' | 'error';
-    error?: string;
-  };
-}
-```
+2. 扫描 `src/components/*.tsx` 和 `src/pages/*.tsx`：
+   - 检查是否有内联样式 `style={{ ... }}` 或 `styled-jsx` 中写死的紫色 hex/rgba。
+   - 检查 SVG `fill`、`stroke` 中是否还有写死的紫色。
 
-### 3. 启动流程集成
+3. 扫描 `src/lib/accentColor.ts`：
+   - 确认紫色 preset 的 light/dark 整套颜色是协调的偏粉紫，没有其他 preset 残留旧紫。
 
-- 当虚拟机配置 `integration.clipboard.enabled === true` 时，启动虚拟机自动创建剪贴板桥
-- 剪贴板桥每台虚拟机独立，使用 TCP 连接
-- 不要暴露 `10.0.2.2`、session id、原始 TCP 协议给前端
+4. 不要做的事：
+   - 不要修改功能逻辑。
+   - 不要改预设数量、自定义弹窗、保存模板逻辑。
+   - 不要改文字色、成功/警告/危险色、console 颜色、纯黑白。
 
-### 4. ISO 打包
+完成后写 `gpt-sendback.md`，只说明：
 
-- Sanaka Tools ISO 需要打包到应用内（类似 test-net.iso）
-- 提供路径或挂载接口给前端调用
-
-## 影响哪些文件或模块
-
-- `src-electron/` 主进程 runtime 相关代码
-- `src-electron/preload.ts` IPC 暴露
-- 运行时状态管理
-- 打包配置（ISO 资源）
-
-## 怎么验证
-
-1. 创建虚拟机，开启"共享剪贴板"开关，保存
-2. 启动虚拟机
-3. 在控制台点击"更多" -> "安装 Sanaka 增强功能程序"
-4. 虚拟机内应能看到挂载的 ISO
-5. 前端能通过运行时状态读取剪贴板桥状态
-
-## 前端已完成的部分
-
-- `MachineBuilderPage.tsx`：体验卡片已添加剪贴板共享开关和提示文案
-- `MachineConsolePage.tsx`：更多按钮下拉菜单已添加"安装 Sanaka 增强功能程序"选项
-- `i18n/resources.ts`：已添加中英文翻译
-- `schemas.ts`：已确认 `integration.clipboard` 结构存在
-
-## 注意
-
-- 第一版明确是 XP 优先
-- 当前仅支持文本剪贴板
-- 文案不要暴露内部实现细节
+- 是否发现残留硬编码颜色
+- 改了哪些文件、哪些位置
+- 是否还有未处理的残留项及原因
