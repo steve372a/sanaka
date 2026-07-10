@@ -83,7 +83,7 @@ resolve_macos_arch() {
 cd "$REPO_ROOT"
 
 npm run build
-npx electron-builder --dir --mac --config.mac.target=dir
+npx electron-builder --dir --mac --config.mac.target=dir --publish never
 
 APP_PATH="$(find "$OUTPUT_ROOT" -type d -name 'Sanaka.app' | head -n 1)"
 
@@ -92,8 +92,13 @@ if [[ "$APP_PATH" == "" ]]; then
   exit 1
 fi
 
-SANAKA_QEMU_AARCH64_ENTITLEMENTS="$REPO_ROOT/build/qemu-aarch64.entitlements.plist" \
-  bash "$REPO_ROOT/scripts/embed-qemu-macos.sh" "$QEMU_BUILD_DIR" "$APP_PATH" "${EMBED_ARGS[@]}"
+if [[ "${#EMBED_ARGS[@]}" -gt 0 ]]; then
+  SANAKA_QEMU_AARCH64_ENTITLEMENTS="$REPO_ROOT/build/qemu-aarch64.entitlements.plist" \
+    bash "$REPO_ROOT/scripts/embed-qemu-macos.sh" "$QEMU_BUILD_DIR" "$APP_PATH" "${EMBED_ARGS[@]}"
+else
+  SANAKA_QEMU_AARCH64_ENTITLEMENTS="$REPO_ROOT/build/qemu-aarch64.entitlements.plist" \
+    bash "$REPO_ROOT/scripts/embed-qemu-macos.sh" "$QEMU_BUILD_DIR" "$APP_PATH"
+fi
 
 LSREGISTER_BIN="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
