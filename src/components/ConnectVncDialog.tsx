@@ -86,7 +86,6 @@ export function ConnectVncDialog({ open, onClose, onConnected }: ConnectVncDialo
         aria-labelledby="connect-vnc-title"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="brand-orb brand-orb--modal" />
         <h2 id="connect-vnc-title" style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '0 0 10px 0', fontSize: '1.2rem' }}>
           <NetworkIcon />
           {t('viewer.title')}

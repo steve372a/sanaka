@@ -11,6 +11,20 @@ export const sharedFolderModeSchema = z.enum(['readonly', 'readwrite']);
 export const clipboardBridgeModeSchema = z.enum(['text']);
 export const guestArchSchema = z.enum(['none', 'x86_64', 'i386', 'aarch64', 'arm', 'riscv64', 'ppc', 'ppc64']);
 export const acceleratorSchema = z.enum(['none', 'tcg', 'mttcg', 'kvm', 'hax', 'whpx', 'hvf']);
+export const accentColorPresetSchema = z.enum(['purple', 'blue', 'orange', 'white', 'green']);
+
+export const accentColorCustomSchema = z.object({
+  lightPrimary: z.string(),
+  lightSurface: z.string(),
+  darkPrimary: z.string(),
+  darkSurface: z.string()
+});
+
+export const accentColorTemplateSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  custom: accentColorCustomSchema
+});
 
 export const templateCatalogEntrySchema = z.object({
   key: z.string(),
@@ -45,7 +59,30 @@ export const appSettingsSchema = z.object({
     brandedHero: z.boolean(),
     advancedConsole: z.boolean(),
     protocolInspector: z.boolean()
-  })
+  }),
+  accentColor: z
+    .object({
+      mode: z.enum(['preset', 'custom']),
+      preset: accentColorPresetSchema.default('purple'),
+      custom: accentColorCustomSchema.default({
+        lightPrimary: '#C678FF',
+        lightSurface: '#F7EFFF',
+        darkPrimary: '#D4A3FF',
+        darkSurface: '#2E1F3F'
+      }),
+      templates: z.array(accentColorTemplateSchema).default([])
+    })
+    .default({
+      mode: 'preset',
+      preset: 'purple',
+      custom: {
+        lightPrimary: '#C678FF',
+        lightSurface: '#F7EFFF',
+        darkPrimary: '#D4A3FF',
+        darkSurface: '#2E1F3F'
+      },
+      templates: []
+    })
 });
 
 export const recentEntrySchema = z.object({

@@ -4,6 +4,8 @@ import type { AppSettings, TemplateCatalogEntry } from '../domain/schemas';
 import { SectionCard } from '../components/Field';
 import { MaterialSelect, MaterialSelectField } from '../components/MaterialSelect';
 import { Checkbox } from '../components/Checkbox';
+import { AccentColorPicker } from '../components/AccentColorPicker';
+import { AccentColorCustomDialog } from '../components/AccentColorCustomDialog';
 import { useAppStore } from '../store/AppStore';
 import { useT } from '../hooks/useT';
 
@@ -92,6 +94,100 @@ const DownloadIcon = () => (
   </svg>
 );
 
+// Template OS icons (clean, proportion-correct SVG paths)
+const WindowsLogoIcon = () => (
+  <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+    <path d="M2 2h9v9H2zM13 2h9v9h-9zM2 13h9v9H2zM13 13h9v9h-9z" />
+  </svg>
+);
+
+const LinuxIcon = () => (
+  <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+    <path d="M12 2c-1.5 0-2.8.8-3.4 2.1-.4.8-.4 1.7-.1 2.5-.6.3-1.2.7-1.7 1.2-1.4 1.4-2.1 3.3-2.1 5.3 0 2.1.8 4 2.2 5.4.6.6 1.4 1 2.2 1.2-.1.3-.2.6-.2 1 0 1 .8 1.8 1.8 1.8s1.8-.8 1.8-1.8c0-.3-.1-.6-.2-.8.9-.2 1.6-.6 2.2-1.2 1.4-1.4 2.2-3.3 2.2-5.4 0-1.2-.3-2.3-.8-3.3-.5-1-1.2-1.8-2.1-2.4.3-.6.5-1.3.5-2C16.3 3.8 14.5 2 12 2zm0 1.8c1 0 1.8.8 1.8 1.8s-.8 1.8-1.8 1.8-1.8-.8-1.8-1.8.8-1.8 1.8-1.8zM9.5 9.5c.5 0 .9.4.9.9s-.4.9-.9.9-.9-.4-.9-.9.4-.9.9-.9zm5 0c.5 0 .9.4.9.9s-.4.9-.9.9-.9-.4-.9-.9.4-.9.9-.9zm-2.5 3c1.4 0 2.5 1.1 2.5 2.5h-5c0-1.4 1.1-2.5 2.5-2.5z" />
+  </svg>
+);
+
+const ComputerIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="20" height="20">
+    <rect x="2" y="3" width="20" height="14" rx="2" />
+    <line x1="8" y1="21" x2="16" y2="21" />
+    <line x1="12" y1="17" x2="12" y2="21" />
+  </svg>
+);
+
+function getTemplateIcon(key: string) {
+  const lowercaseKey = key.toLowerCase();
+  if (lowercaseKey.includes('win')) {
+    return <WindowsLogoIcon />;
+  }
+  if (lowercaseKey.includes('linux') || lowercaseKey.includes('ubuntu') || lowercaseKey.includes('debian')) {
+    return <LinuxIcon />;
+  }
+  return <ComputerIcon />;
+}
+
+interface TemplateItemProps {
+  entry: TemplateCatalogEntry;
+  isFirst: boolean;
+  isLast: boolean;
+  t: ReturnType<typeof useT>;
+  onToggle: (key: string, enabled: boolean) => void;
+  onReorder: (key: string, offset: number) => void;
+}
+
+function TemplateItem({ entry, isFirst, isLast, t, onToggle, onReorder }: TemplateItemProps) {
+  return (
+    <div className={entry.enabled ? 'template-item template-item--active' : 'template-item'}>
+      <span className="template-item__accent" aria-hidden="true" />
+      <div className="template-item__icon">{getTemplateIcon(entry.key)}</div>
+      <div className="template-item__body">
+        <div className="template-item__meta">
+          <strong>{entry.label}</strong>
+          <span className="template-item__source">
+            {entry.source === 'builtin' ? t('settings.templateBuiltIn') : t('settings.templateImported')}
+          </span>
+        </div>
+        <div className="template-item__actions">
+          <div className="template-item__reorder">
+            <button
+              className="button button--ghost button--icon button--compact"
+              type="button"
+              disabled={isFirst}
+              onClick={() => void onReorder(entry.key, -1)}
+              title={t('common.moveUp')}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
+                <path d="M18 15l-6-6-6 6" />
+              </svg>
+            </button>
+            <button
+              className="button button--ghost button--icon button--compact"
+              type="button"
+              disabled={isLast}
+              onClick={() => void onReorder(entry.key, 1)}
+              title={t('common.moveDown')}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </button>
+          </div>
+          <label className="ios-toggle ios-toggle--small" aria-label={t('common.enabled')}>
+            <input
+              checked={entry.enabled}
+              type="checkbox"
+              onChange={(event) => void onToggle(entry.key, event.target.checked)}
+            />
+            <span className="ios-toggle__track">
+              <span className="ios-toggle__thumb" />
+            </span>
+          </label>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const tabs = ['general', 'files', 'runtime', 'displayAudio', 'templates', 'experimental', 'update'] as const;
 const languageOptions = [
   { value: 'zh-CN', label: 'zh-CN' },
@@ -138,7 +234,7 @@ function SettingsDrawerSection({
 }
 
 export function SettingsPage() {
-  const { appMeta, settings, persistSettings, setTheme, importTemplateFromDialog, templates, updateTemplateCatalog, updateCurrentInfo, checkForUpdates, runtimeEnvironment } = useAppStore();
+  const { appMeta, settings, persistSettings, setTheme, importTemplateFromDialog, templates, updateTemplateCatalog, updateCurrentInfo, checkForUpdates } = useAppStore();
   const t = useT();
   const isWebMode = typeof window !== 'undefined' && window.location.protocol !== 'file:';
   const [params, setParams] = useSearchParams();
@@ -147,6 +243,7 @@ export function SettingsPage() {
   const [checking, setChecking] = useState(false);
   const [checkMessage, setCheckMessage] = useState<string | null>(null);
   const [templateImportMessage, setTemplateImportMessage] = useState<string | null>(null);
+  const [accentColorDialogOpen, setAccentColorDialogOpen] = useState(false);
 
   useEffect(() => {
     const nextTab = params.get('tab');
@@ -201,66 +298,11 @@ export function SettingsPage() {
     }
   };
 
-  const renderTemplateRow = (entry: TemplateCatalogEntry) => (
-    <div key={entry.key} className="template-row">
-      <div className="template-row__info">
-        <div className="template-row__icon">
-          {entry.key.includes('windows') ? (
-            <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
-              <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/>
-            </svg>
-          ) : entry.key.includes('linux') ? (
-            <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
-              <path d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.832-.41 1.684-.287 2.489a.424.424 0 00-.11.135c-.26.268-.45.6-.663.839-.199.199-.485.267-.797.4-.313.136-.658.269-.864.68-.09.189-.136.394-.132.602 0 .199.027.4.055.536.058.399.116.728.04.97-.249.68-.28 1.145-.106 1.484.174.334.535.47.94.601.81.2 1.91.135 2.774.6.926.466 1.866.67 2.616.47.526-.116.97-.464 1.208-.946.587-.003 1.23-.269 2.26-.334.699-.058 1.574.267 2.577.2.025.134.063.198.114.333l.003.003c.391.778 1.113 1.132 1.884 1.071.771-.06 1.592-.536 2.257-1.306.631-.765 1.683-1.084 2.378-1.503.348-.199.629-.469.649-.853.023-.4-.2-.811-.714-1.376v-.097l-.003-.003c-.17-.2-.25-.535-.338-.926-.085-.401-.182-.786-.492-1.046h-.003c-.059-.054-.123-.067-.188-.135a.357.357 0 00-.19-.064c.431-1.278.264-2.55-.173-3.694-.533-1.41-1.465-2.638-2.175-3.483-.796-1.005-1.576-1.957-1.56-3.368.026-2.152.236-6.133-3.544-6.139zm.529 3.405h.013c.213 0 .396.062.584.198.19.135.33.332.438.533.105.259.158.459.166.724 0-.02.006-.04.006-.06v.105a.086.086 0 01-.004-.021l-.004-.024a1.807 1.807 0 01-.15.706.953.953 0 01-.213.335.71.71 0 00-.088-.042c-.104-.045-.198-.064-.284-.133a1.312 1.312 0 00-.22-.066c.05-.06.146-.133.183-.198.053-.128.082-.264.088-.402v-.02a1.21 1.21 0 00-.061-.4c-.045-.134-.101-.2-.183-.333-.084-.066-.167-.132-.267-.132h-.016c-.093 0-.176.03-.262.132a.8.8 0 00-.205.334 1.18 1.18 0 00-.09.41v.019c.002.089.008.179.026.266.03.134.06.2.116.333l.003.003c.054.13.155.198.26.202.066.004.13-.036.2-.124a.52.52 0 01-.146.042c-.113 0-.193-.04-.26-.092-.065-.054-.113-.132-.165-.2-.053-.2-.082-.4-.086-.6v-.02c0-.133.027-.266.07-.4.04-.134.1-.2.166-.333.066-.134.133-.2.233-.266.1-.066.2-.066.3-.066zm-1.8 3.768c.04 0 .074.006.1.02.128.066.243.2.343.4.1.2.166.465.2.732.033.266.033.533.033.8 0 .266-.033.533-.1.732-.066.2-.166.4-.266.533-.1.133-.233.2-.366.2-.133 0-.233-.067-.333-.2-.1-.133-.2-.333-.266-.533-.066-.2-.1-.466-.1-.732 0-.267.033-.534.1-.8.066-.267.166-.532.266-.732.1-.2.233-.334.366-.4.066-.033.133-.02.2-.02zm3.134 0c.067 0 .134.006.2.02.133.066.266.2.366.4.1.2.2.465.266.732.066.266.1.533.1.8 0 .266-.034.532-.1.732-.066.2-.166.4-.266.533-.1.133-.233.2-.366.2-.133 0-.266-.067-.366-.2-.1-.133-.2-.333-.266-.533-.067-.2-.1-.466-.1-.732 0-.267.033-.534.1-.8.066-.267.166-.532.266-.732.1-.2.233-.334.366-.4.066-.033.133-.02.2-.02z"/>
-            </svg>
-          ) : (
-            <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
-              <path d="M14.658 0a8.01 8.01 0 00-5.613 2.309l.034.034-.029.029a7.933 7.933 0 00-2.336 5.659v.007c0 .247.012.49.034.73a6.66 6.66 0 01-.715-.122c-1.67-.36-3.39-.144-4.896.605A6.23 6.23 0 00.608 13.74a6.235 6.235 0 00.605 4.896 6.23 6.23 0 003.15 2.738c1.506.749 3.226.965 4.896.605.244-.053.483-.12.715-.199-.022.24-.034.483-.034.73a7.933 7.933 0 002.336 5.659l.029.029-.034.034a8.01 8.01 0 005.613 2.309 8.01 8.01 0 005.613-2.309l-.034-.034.029-.029a7.933 7.933 0 002.336-5.659v-.007c0-.247-.012-.49-.034-.73.232.079.471.146.715.199 1.67.36 3.39.144 4.896-.605a6.23 6.23 0 002.738-3.15 6.235 6.235 0 00-.605-4.896 6.23 6.23 0 00-3.15-2.738c-1.506-.749-3.226-.965-4.896-.605-.244.053-.483.12-.715.199.022-.24.034-.483.034-.73a7.933 7.933 0 00-2.336-5.659l-.029-.029.034-.034A8.01 8.01 0 0014.658 0z"/>
-            </svg>
-          )}
-        </div>
-        <div className="template-row__text">
-          <strong>{entry.label}</strong>
-          <span className="template-row__source">{entry.source === 'builtin' ? t('settings.templateBuiltIn') : t('settings.templateImported')}</span>
-        </div>
-      </div>
-      <div className="template-row__actions">
-        <div className="template-row__control">
-          <span className="template-row__label">{t('settings.frontend')}</span>
-          <div className="info-panel" style={{ padding: '10px 12px' }}>
-            <strong>Sanaka</strong>
-            <p style={{ margin: 0 }}>VNC</p>
-          </div>
-        </div>
-        <div className="template-row__reorder">
-          <button className="button button--ghost button--icon" type="button" onClick={() => void reorder(entry.key, -1)} title={t('common.moveUp')}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
-              <path d="M18 15l-6-6-6 6"/>
-            </svg>
-          </button>
-          <button className="button button--ghost button--icon" type="button" onClick={() => void reorder(entry.key, 1)} title={t('common.moveDown')}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
-              <path d="M6 9l6 6 6-6"/>
-            </svg>
-          </button>
-        </div>
-        <label className="ios-toggle ios-toggle--small" aria-label={t('common.enabled')}>
-          <input
-            checked={entry.enabled}
-            type="checkbox"
-            onChange={(event) =>
-              void updateTemplateCatalog((catalog) =>
-                catalog.map((item) => (item.key === entry.key ? { ...item, enabled: event.target.checked } : item))
-              )
-            }
-          />
-          <span className="ios-toggle__track">
-            <span className="ios-toggle__thumb" />
-          </span>
-        </label>
-      </div>
-    </div>
-  );
+  const handleToggleTemplate = (key: string, enabled: boolean) => {
+    void updateTemplateCatalog((catalog) =>
+      catalog.map((item) => (item.key === key ? { ...item, enabled } : item))
+    );
+  };
 
   return (
     <div className="page page--settings">
@@ -306,6 +348,20 @@ export function SettingsPage() {
                   </button>
                 </div>
               </div>
+              <div className="field">
+                <span className="field__label">{t('settings.accentColor')}</span>
+                <AccentColorPicker
+                  value={settings.accentColor}
+                  onChange={(next) => void patchSettings({ accentColor: next })}
+                  onOpenCustom={() => setAccentColorDialogOpen(true)}
+                />
+              </div>
+              <AccentColorCustomDialog
+                open={accentColorDialogOpen}
+                value={settings.accentColor}
+                onChange={(next) => void patchSettings({ accentColor: next })}
+                onClose={() => setAccentColorDialogOpen(false)}
+              />
                 </SectionCard>
               ) : null}
 
@@ -315,10 +371,6 @@ export function SettingsPage() {
                 <span className="field__label">{t('settings.savePath')}</span>
                 <input value={defaultMachineDirectory} onChange={(event) => void patchSettings({ defaultSaveDirectory: event.target.value })} placeholder={appMeta?.defaultMachineDirectory ?? ''} />
               </label>
-              <div className="info-panel">
-                <strong>{t('settings.fileAssociation')}</strong>
-                <p>{t('settings.fileAssociationHint')}</p>
-              </div>
                 </SectionCard>
               ) : null}
 
@@ -365,35 +417,6 @@ export function SettingsPage() {
                   {isWebMode ? t('settings.webModePortWebLocked') : t('settings.webModePortHint')}
                 </small>
               </label>
-              <div className="info-panel">
-                <strong>QEMU Runtime</strong>
-                <p style={{ marginBottom: '8px' }}>
-                  {runtimeEnvironment
-                    ? `${runtimeEnvironment.platform} / ${runtimeEnvironment.arch} · accelerators: ${runtimeEnvironment.accelerators.join(', ')}`
-                    : 'Loading runtime environment...'}
-                </p>
-                {runtimeEnvironment ? (
-                  <div className="settings-runtime-list">
-                    {Object.entries(runtimeEnvironment.binaries).map(([key, binary]) => (
-                      <div key={key} className="settings-runtime-entry">
-                        <strong>{binary.name}</strong>
-                        <p className="settings-runtime-copy">{binary.version || 'Version unavailable'}</p>
-                        <p className="settings-runtime-copy settings-runtime-copy--path">{binary.path || 'Not found'}</p>
-                      </div>
-                    ))}
-                    {runtimeEnvironment.searchRoots?.length ? (
-                      <div className="settings-runtime-entry">
-                        <strong>Search Roots</strong>
-                        {runtimeEnvironment.searchRoots.map((root) => (
-                          <p key={root} className="settings-runtime-copy settings-runtime-copy--path">
-                            {root}
-                          </p>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
                 </SectionCard>
               ) : null}
 
@@ -416,17 +439,33 @@ export function SettingsPage() {
 
               {tab === 'templates' ? (
                 <SectionCard title={t('settings.tabs.templates')} description={t('settings.templatesDescription')} icon={<LayoutGridIcon />}>
-              <div className="action-row">
+              <div className="template-toolbar">
+                <div className="template-toolbar__info">
+                  <strong>{t('settings.tabs.templates')}</strong>
+                  <span>{t('settings.templateCount', { count: orderedTemplates.length })}</span>
+                </div>
                 <button className="button button--primary" type="button" onClick={() => void handleImportTemplate()}>
                   {t('settings.importTemplate')}
                 </button>
               </div>
               {templateImportMessage ? (
-                <div className="info-panel" style={{ marginBottom: '12px' }}>
-                  <p style={{ margin: 0 }}>{templateImportMessage}</p>
+                <div className="info-panel template-import-message">
+                  <p>{templateImportMessage}</p>
                 </div>
               ) : null}
-              <div className="template-library">{orderedTemplates.map(renderTemplateRow)}</div>
+              <div className="template-list">
+                {orderedTemplates.map((entry, index) => (
+                  <TemplateItem
+                    key={entry.key}
+                    entry={entry}
+                    isFirst={index === 0}
+                    isLast={index === orderedTemplates.length - 1}
+                    t={t}
+                    onToggle={handleToggleTemplate}
+                    onReorder={reorder}
+                  />
+                ))}
+              </div>
                 </SectionCard>
               ) : null}
 

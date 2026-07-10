@@ -127,6 +127,7 @@ resolve_default_qemu_dir() {
       ;;
     windows)
       for candidate in \
+        "$HOME/sanaka/qemu/win" \
         "/c/Program Files/qemu" \
         "/c/Program Files/QEMU" \
         "/mnt/c/Program Files/qemu" \

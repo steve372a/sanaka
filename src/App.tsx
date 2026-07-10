@@ -15,6 +15,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import { VncViewerPage } from './pages/VncViewerPage';
 import { useAppStore } from './store/AppStore';
 import { useT } from './hooks/useT';
+import { useAccentColor } from './hooks/useAccentColor';
 
 const TrashIcon = ({ style }: { style?: React.CSSProperties }) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style}>
@@ -81,6 +82,7 @@ function MainLayout() {
     openUpdatePage
   } = useAppStore();
   const t = useT();
+  useAccentColor();
   const deleteModal = usePresence(Boolean(deleteTarget));
   const [aboutPageOpen, setAboutPageOpen] = useState(false);
   const [logoClickPosition, setLogoClickPosition] = useState({ x: 0, y: 0 });
@@ -165,7 +167,6 @@ function MainLayout() {
       {deleteModal.mounted && (
         <div className={deleteModal.visible ? 'modal-backdrop modal-backdrop--visible' : 'modal-backdrop'} role="presentation" onClick={() => setDeleteTarget(null)}>
           <div className={deleteModal.visible ? 'modal-card modal-card--visible' : 'modal-card'} role="dialog" aria-modal="true" aria-labelledby="delete-confirm-title" onClick={(event) => event.stopPropagation()}>
-            <div className="brand-orb brand-orb--modal" />
             <h2 id="delete-confirm-title" style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--danger)', margin: '0 0 10px 0', fontSize: '1.25rem' }}>
               <TrashIcon style={{ width: '24px', height: '24px' }} />
               {t('details.deleteTitle')}
@@ -203,7 +204,6 @@ export function RoutedShell() {
       {startErrorModal.mounted && (
         <div className={startErrorModal.visible ? 'modal-backdrop modal-backdrop--visible' : 'modal-backdrop'} role="presentation" onClick={() => setStartError(null)}>
           <div className={startErrorModal.visible ? 'modal-card modal-card--visible' : 'modal-card'} role="dialog" aria-modal="true" aria-labelledby="start-error-title" onClick={(event) => event.stopPropagation()}>
-            <div className="brand-orb brand-orb--modal" />
             <h2 id="start-error-title" style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--danger)', margin: '0 0 10px 0', fontSize: '1.25rem' }}>
               <AlertIcon style={{ width: '24px', height: '24px' }} />
               {activeStartError?.title}
