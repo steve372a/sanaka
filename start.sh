@@ -11,6 +11,8 @@ ACTION_LABEL=""
 ACTION_COMMAND=()
 ACTION_QEMU_PLATFORM=""
 ACTION_RUN_DOCTOR_FIRST="false"
+ACTION_BRANCH="main"
+ACTION_COMMIT_MESSAGE="Update"
 USE_WHIPTAIL="false"
 WT_HEIGHT=20
 WT_WIDTH=78
@@ -278,6 +280,22 @@ apply_action_choice() {
       return 0
       ;;
     10)
+      ACTION_ID="pull"
+      ACTION_LABEL="$(sanaka_t "start.menu_10")"
+      ACTION_COMMAND=()
+      ACTION_QEMU_PLATFORM=""
+      ACTION_RUN_DOCTOR_FIRST="false"
+      return 0
+      ;;
+    11)
+      ACTION_ID="push"
+      ACTION_LABEL="$(sanaka_t "start.menu_11")"
+      ACTION_COMMAND=()
+      ACTION_QEMU_PLATFORM=""
+      ACTION_RUN_DOCTOR_FIRST="false"
+      return 0
+      ;;
+    12)
       sanaka_log "common.exit"
       exit 0
       ;;
@@ -302,6 +320,8 @@ choose_action() {
         "8" "$(sanaka_t "start.menu_8")" \
         "9" "$(sanaka_t "start.menu_9")" \
         "10" "$(sanaka_t "start.menu_10")" \
+        "11" "$(sanaka_t "start.menu_11")" \
+        "12" "$(sanaka_t "start.menu_12")" \
         "L" "$(sanaka_t "start.menu_lang")")" || exit 0
       case "$choice" in
         L|l)
@@ -327,6 +347,8 @@ choose_action() {
       sanaka_printf_ln "start.menu_8"
       sanaka_printf_ln "start.menu_9"
       sanaka_printf_ln "start.menu_10"
+      sanaka_printf_ln "start.menu_11"
+      sanaka_printf_ln "start.menu_12"
       sanaka_printf "start.menu_prompt"
       read -r choice || exit 0
       case "$choice" in
@@ -346,8 +368,43 @@ choose_action() {
 
 configure_action() {
   local qemu_dir=""
+  local branch=""
+  local commit_message=""
 
   case "$ACTION_ID" in
+    pull)
+      if [[ "$USE_WHIPTAIL" == "true" ]]; then
+        branch="$(wt_inputbox "$(sanaka_t "start.branch_question")" "$ACTION_BRANCH")" || return 1
+      else
+        pause_line
+        sanaka_log "start.branch_question"
+        sanaka_printf "start.branch_prompt"
+        read -r branch || true
+      fi
+      branch="${branch:-main}"
+      ACTION_BRANCH="$branch"
+      ACTION_COMMAND=(bash "$ROOT_DIR/scripts/pull.sh" "$ACTION_BRANCH")
+      ;;
+    push)
+      if [[ "$USE_WHIPTAIL" == "true" ]]; then
+        branch="$(wt_inputbox "$(sanaka_t "start.branch_question")" "$ACTION_BRANCH")" || return 1
+        commit_message="$(wt_inputbox "$(sanaka_t "start.commit_question")" "$ACTION_COMMIT_MESSAGE")" || return 1
+      else
+        pause_line
+        sanaka_log "start.branch_question"
+        sanaka_printf "start.branch_prompt"
+        read -r branch || true
+        pause_line
+        sanaka_log "start.commit_question"
+        sanaka_printf "start.commit_prompt"
+        read -r commit_message || true
+      fi
+      branch="${branch:-main}"
+      commit_message="${commit_message:-Update}"
+      ACTION_BRANCH="$branch"
+      ACTION_COMMIT_MESSAGE="$commit_message"
+      ACTION_COMMAND=(bash "$ROOT_DIR/scripts/push.sh" "$ACTION_BRANCH" "$ACTION_COMMIT_MESSAGE")
+      ;;
     start)
       if ask_yes_no "start.ask_run_doctor_first"; then
         ACTION_RUN_DOCTOR_FIRST="true"
@@ -372,6 +429,16 @@ print_summary() {
   local summary
   if [[ "$USE_WHIPTAIL" == "true" ]]; then
     summary="$(printf "$(sanaka_t "start.summary_action")\n" "$ACTION_LABEL")"
+    if [[ "$ACTION_ID" == "pull" || "$ACTION_ID" == "push" ]]; then
+      summary+="$(
+        printf "$(sanaka_t "start.summary_branch")\n" "$ACTION_BRANCH"
+      )"
+    fi
+    if [[ "$ACTION_ID" == "push" ]]; then
+      summary+="$(
+        printf "$(sanaka_t "start.summary_commit")\n" "$ACTION_COMMIT_MESSAGE"
+      )"
+    fi
     if [[ "$ACTION_RUN_DOCTOR_FIRST" == "true" ]]; then
       summary+="$(
         printf "$(sanaka_t "start.summary_doctor_first")\n" "$(sanaka_t "start.enabled")"
@@ -388,6 +455,12 @@ print_summary() {
   pause_line
   sanaka_log "start.step_summary"
   sanaka_log "start.summary_action" "$ACTION_LABEL"
+  if [[ "$ACTION_ID" == "pull" || "$ACTION_ID" == "push" ]]; then
+    sanaka_log "start.summary_branch" "$ACTION_BRANCH"
+  fi
+  if [[ "$ACTION_ID" == "push" ]]; then
+    sanaka_log "start.summary_commit" "$ACTION_COMMIT_MESSAGE"
+  fi
   if [[ "$ACTION_RUN_DOCTOR_FIRST" == "true" ]]; then
     sanaka_log "start.summary_doctor_first" "$(sanaka_t "start.enabled")"
   fi
@@ -431,6 +504,8 @@ main() {
     ACTION_COMMAND=()
     ACTION_QEMU_PLATFORM=""
     ACTION_RUN_DOCTOR_FIRST="false"
+    ACTION_BRANCH="main"
+    ACTION_COMMIT_MESSAGE="Update"
 
     wizard_header "$platform"
     choose_action

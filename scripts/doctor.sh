@@ -86,7 +86,11 @@ has_command() {
 critical_scripts=(
   "doctor"
   "scripts/doctor.sh"
+  "scripts/pull.sh"
   "scripts/pull-main.sh"
+  "scripts/push.sh"
+  "scripts/push-main.sh"
+  "start.sh"
   "scripts/pull-main-windows.sh"
 )
 

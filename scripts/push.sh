@@ -41,6 +41,8 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   exit 1
 fi
 
+bash "$ROOT_DIR/scripts/doctor.sh" --auto --no-build || true
+
 CURRENT_BRANCH="$(git branch --show-current)"
 
 if [[ -z "${CURRENT_BRANCH}" ]]; then
@@ -68,5 +70,8 @@ else
 fi
 
 sanaka_log "push.pushing" "$TARGET_BRANCH"
-git push -u origin "${TARGET_BRANCH}"
+if ! git push -u origin "${TARGET_BRANCH}"; then
+  bash "$ROOT_DIR/scripts/doctor.sh" --auto --no-build || true
+  git push -u origin "${TARGET_BRANCH}"
+fi
 sanaka_log "common.done"

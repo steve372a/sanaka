@@ -24,6 +24,7 @@ EOF
 }
 
 TARGET_BRANCH="${1:-main}"
+TEMP_HELPER=""
 
 if [[ "${TARGET_BRANCH}" == "--help" || "${TARGET_BRANCH}" == "-h" ]]; then
   usage
@@ -42,19 +43,73 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   exit 1
 fi
 
+cleanup() {
+  if [[ -n "${TEMP_HELPER:-}" && -f "${TEMP_HELPER:-}" ]]; then
+    rm -f "$TEMP_HELPER" 2>/dev/null || true
+  fi
+}
+
+trap cleanup EXIT
+
+bash "$ROOT_DIR/scripts/doctor.sh" --auto --no-build || true
+
+TEMP_HELPER="$(mktemp "${TMPDIR:-/tmp}/sanaka-pull.XXXXXX.sh")"
+cat >"$TEMP_HELPER" <<'EOF'
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT_DIR="$1"
+TARGET_BRANCH="$2"
+cd "$ROOT_DIR"
+
+retry_sync_after_fix() {
+  local error_output="$1"
+  local conflict_path
+  conflict_path="$(printf '%s\n' "$error_output" | sed -n "s/^error: unable to create file \(.*\): File exists$/\1/p" | head -n 1)"
+  if [[ -n "$conflict_path" ]]; then
+    rm -rf -- "$ROOT_DIR/$conflict_path" 2>/dev/null || true
+  fi
+}
+
+run_sync_once() {
+  git fetch origin
+
+  if ! git show-ref --verify --quiet "refs/remotes/origin/${TARGET_BRANCH}"; then
+    echo "Remote branch origin/${TARGET_BRANCH} does not exist."
+    return 1
+  fi
+
+  if git show-ref --verify --quiet "refs/heads/${TARGET_BRANCH}"; then
+    git checkout "${TARGET_BRANCH}"
+  else
+    git checkout -b "${TARGET_BRANCH}" "origin/${TARGET_BRANCH}"
+  fi
+
+  git reset --hard "origin/${TARGET_BRANCH}"
+}
+
+run_sync_with_retry() {
+  local error_output=""
+  if run_sync_once 2> >(tee "$ROOT_DIR/.sanaka-pull.stderr" >&2); then
+    rm -f "$ROOT_DIR/.sanaka-pull.stderr" 2>/dev/null || true
+    return 0
+  fi
+
+  error_output="$(cat "$ROOT_DIR/.sanaka-pull.stderr" 2>/dev/null || true)"
+  rm -f "$ROOT_DIR/.sanaka-pull.stderr" 2>/dev/null || true
+  retry_sync_after_fix "$error_output"
+  run_sync_once
+}
+
+run_sync_with_retry
+EOF
+chmod +x "$TEMP_HELPER"
+
 sanaka_log "pull.fetching"
-git fetch origin --prune
+bash "$TEMP_HELPER" "$ROOT_DIR" "$TARGET_BRANCH"
 
-if ! git show-ref --verify --quiet "refs/remotes/origin/${TARGET_BRANCH}"; then
-  sanaka_log "pull.remote_missing" "origin/${TARGET_BRANCH}"
-  exit 1
-fi
+sanaka_log "pull.entering_doctor"
+bash "$ROOT_DIR/scripts/doctor.sh" --auto
 
-if git show-ref --verify --quiet "refs/heads/${TARGET_BRANCH}"; then
-  git checkout "${TARGET_BRANCH}"
-else
-  git checkout -b "${TARGET_BRANCH}" "origin/${TARGET_BRANCH}"
-fi
-
-git reset --hard "origin/${TARGET_BRANCH}"
 sanaka_log "pull.completed"
