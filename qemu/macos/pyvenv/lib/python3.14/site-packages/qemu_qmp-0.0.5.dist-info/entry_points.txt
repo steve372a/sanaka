@@ -1,0 +1,4 @@
+[console_scripts]
+qmp-shell = qemu.qmp.qmp_shell:main
+qmp-shell-wrap = qemu.qmp.qmp_shell:main_wrap
+qmp-tui = qemu.qmp.qmp_tui:main [tui]

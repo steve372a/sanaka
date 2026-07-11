@@ -30,6 +30,7 @@ DEFAULT_AARCH64_ENTITLEMENTS="$SCRIPT_DIR/../build/qemu-aarch64.entitlements.pli
 AARCH64_ENTITLEMENTS="${SANAKA_QEMU_AARCH64_ENTITLEMENTS:-$DEFAULT_AARCH64_ENTITLEMENTS}"
 SOURCE_QEMU_BIN_DIR="$BUILD_DIR"
 SOURCE_QEMU_SHARE_DIR=""
+SOURCE_DEP_DIRS=()
 
 if [[ -d "$BUILD_DIR/bin" ]]; then
   SOURCE_QEMU_BIN_DIR="$BUILD_DIR/bin"
@@ -38,6 +39,18 @@ fi
 if [[ -d "$BUILD_DIR/share/qemu" ]]; then
   SOURCE_QEMU_SHARE_DIR="$BUILD_DIR/share/qemu"
 fi
+
+for candidate in \
+  "$BUILD_DIR/Frameworks" \
+  "$BUILD_DIR/frameworks" \
+  "$BUILD_DIR/lib" \
+  "$BUILD_DIR/libs" \
+  "$BUILD_DIR/../Frameworks" \
+  "$BUILD_DIR/../lib"; do
+  if [[ -d "$candidate" ]]; then
+    SOURCE_DEP_DIRS+=("$(cd "$candidate" && pwd)")
+  fi
+done
 
 rm -rf "$QEMU_BIN_DIR" "$QEMU_SHARE_DIR"
 mkdir -p "$QEMU_BIN_DIR" "$QEMU_SHARE_DIR" "$FRAMEWORKS_DIR"
@@ -173,19 +186,71 @@ is_system_dep() {
   [[ "$dep" == /usr/lib/* ]] || [[ "$dep" == /System/Library/* ]]
 }
 
+is_app_relative_dep() {
+  local dep="$1"
+  [[ "$dep" == @executable_path/* ]] || [[ "$dep" == @loader_path/* ]] || [[ "$dep" == @rpath/* ]]
+}
+
 queue_dependencies() {
   local file_path="$1"
   otool -L "$file_path" | tail -n +2 | awk '{print $1}'
 }
 
-copy_dependency_recursive() {
+resolve_dependency_path() {
   local dep="$1"
-  local real_dep
-  real_dep="$(python3 - <<'PY' "$dep"
+  local owner_path="$2"
+
+  if [[ "$dep" == /* ]]; then
+    python3 - <<'PY' "$dep"
 import os, sys
 print(os.path.realpath(sys.argv[1]))
 PY
-)"
+    return 0
+  fi
+
+  if [[ "$dep" == @loader_path/* ]]; then
+    local suffix="${dep#@loader_path/}"
+    local candidate_path
+    candidate_path="$(cd "$(dirname "$owner_path")" && pwd)/$suffix"
+    if [[ -f "$candidate_path" ]]; then
+      python3 - <<'PY' "$candidate_path"
+import os, sys
+print(os.path.realpath(sys.argv[1]))
+PY
+      return 0
+    fi
+  fi
+
+  if is_app_relative_dep "$dep"; then
+    local base_name
+    base_name="$(basename "$dep")"
+    local candidate_dir
+
+    if [[ -f "$FRAMEWORKS_DIR/$base_name" ]]; then
+      printf '%s\n' "$FRAMEWORKS_DIR/$base_name"
+      return 0
+    fi
+
+    for candidate_dir in "${SOURCE_DEP_DIRS[@]}"; do
+      if [[ -f "$candidate_dir/$base_name" ]]; then
+        printf '%s\n' "$candidate_dir/$base_name"
+        return 0
+      fi
+    done
+  fi
+
+  return 1
+}
+
+copy_dependency_recursive() {
+  local dep="$1"
+  local owner_path="$2"
+  local real_dep
+  if ! real_dep="$(resolve_dependency_path "$dep" "$owner_path")"; then
+    sanaka_printf_ln "embed_macos.dependency_not_found" "$dep" >&2
+    return 1
+  fi
+
   local base_name
   base_name="$(basename "$real_dep")"
   local target_dep="$FRAMEWORKS_DIR/$base_name"
@@ -204,7 +269,7 @@ PY
     chmod u+w "$target_dep"
     while IFS= read -r nested; do
       [[ -n "$nested" ]] || continue
-      copy_dependency_recursive "$nested"
+      copy_dependency_recursive "$nested" "$real_dep"
     done < <(queue_dependencies "$real_dep")
   fi
 }
@@ -213,7 +278,7 @@ while IFS= read -r binary; do
   while IFS= read -r dep; do
     [[ -n "$dep" ]] || continue
     if ! is_system_dep "$dep"; then
-      copy_dependency_recursive "$dep"
+      copy_dependency_recursive "$dep" "$binary"
     fi
   done < <(queue_dependencies "$binary")
 done < <(find "$QEMU_BIN_DIR" -type f -perm -111 2>/dev/null)

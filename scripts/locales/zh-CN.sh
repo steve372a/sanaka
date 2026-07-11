@@ -177,7 +177,6 @@ sanaka_i18n_put "start.qemu_dir_prompt" '请输入路径（直接回车使用默
 sanaka_i18n_put "start.qemu_dir_missing" '没有提供 QEMU 目录。'
 sanaka_i18n_put "start.qemu_dir_not_found" '未找到 QEMU 目录: %s'
 sanaka_i18n_put "start.ask_run_doctor_first" '启动 Sanaka 前要先运行 doctor 吗？'
-sanaka_i18n_put "start.confirm_run" '现在执行这个计划吗？'
 sanaka_i18n_put "start.ask_again" '要返回再选一个动作吗？'
 sanaka_i18n_put "start.summary_action" '动作: %s'
 sanaka_i18n_put "start.summary_branch" '分支: %s'

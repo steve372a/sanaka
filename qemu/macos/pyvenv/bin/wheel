@@ -1,0 +1,8 @@
+#!/Users/steve372dzudo/src/qemu-11.0.1/build-sanaka/pyvenv/bin/python3.14
+# -*- coding: utf-8 -*-
+import re
+import sys
+if __name__ == '__main__':
+    from wheel._commands import main
+    sys.argv[0] = re.sub(r'(-script\.pyw|\.exe)?$', '', sys.argv[0])
+    sys.exit(main())

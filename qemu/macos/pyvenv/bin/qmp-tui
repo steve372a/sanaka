@@ -1,0 +1,6 @@
+#!/Users/steve372dzudo/src/qemu-11.0.1/build-sanaka/pyvenv/bin/python3.14
+import sys
+from qemu.qmp.qmp_tui import main
+if __name__ == '__main__':
+    sys.argv[0] = sys.argv[0].removesuffix('.exe')
+    sys.exit(main())

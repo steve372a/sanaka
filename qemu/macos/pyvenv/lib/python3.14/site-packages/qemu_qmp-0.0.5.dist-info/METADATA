@@ -1,0 +1,341 @@
+Metadata-Version: 2.4
+Name: qemu.qmp
+Version: 0.0.5
+Summary: QEMU Monitor Protocol library
+Home-page: https://gitlab.com/qemu-project/python-qemu-qmp
+Author: QEMU Project
+Author-email: qemu-devel@nongnu.org
+Maintainer: John Snow
+Maintainer-email: jsnow@redhat.com
+Project-URL: Homepage, https://www.qemu.org/
+Project-URL: Documentation, https://qemu.readthedocs.io/projects/python-qemu-qmp/en/latest/
+Project-URL: Changelog, https://qemu.readthedocs.io/projects/python-qemu-qmp/en/latest/main.html#changelog
+Project-URL: Issues, https://gitlab.com/qemu-project/python-qemu-qmp/-/issues
+Project-URL: Source, https://gitlab.com/qemu-project/python-qemu-qmp
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)
+Classifier: License :: OSI Approved :: GNU General Public License v2 (GPLv2)
+Classifier: Natural Language :: English
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3 :: Only
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Classifier: Programming Language :: Python :: 3.14
+Classifier: Topic :: System :: Emulators
+Classifier: Typing :: Typed
+Requires-Python: >=3.8
+Description-Content-Type: text/x-rst
+License-File: LICENSE
+License-File: LICENSE_GPL2
+Provides-Extra: devel
+Requires-Dist: pytest>=5.2.1; extra == "devel"
+Requires-Dist: coverage>=6.1.0; extra == "devel"
+Requires-Dist: flake8>=5.0.4; extra == "devel"
+Requires-Dist: isort>=5.1.2; extra == "devel"
+Requires-Dist: mypy>=1.4.0; extra == "devel"
+Requires-Dist: pylint>=2.17.3; extra == "devel"
+Requires-Dist: setuptools>=66.1.0; python_version >= "3.12" and extra == "devel"
+Requires-Dist: tox>=3.18.0; extra == "devel"
+Requires-Dist: urwid>=2.1.2; extra == "devel"
+Requires-Dist: urwid-readline>=0.13; extra == "devel"
+Requires-Dist: Pygments>=2.9.0; extra == "devel"
+Provides-Extra: tui
+Requires-Dist: urwid>=2.1.2; extra == "tui"
+Requires-Dist: urwid-readline>=0.13; extra == "tui"
+Requires-Dist: Pygments>=2.9.0; extra == "tui"
+Provides-Extra: build-docs
+Requires-Dist: sphinx>=5.3.0; extra == "build-docs"
+Requires-Dist: sphinx_rtd_theme>=1.1.1; extra == "build-docs"
+Requires-Dist: setuptools_scm>=8.0.0; extra == "build-docs"
+Dynamic: license-file
+
+qemu.qmp: QEMU Monitor Protocol Library
+=======================================
+
+Welcome! ``qemu.qmp`` is a `QEMU Monitor Protocol
+<https://www.qemu.org/docs/master/interop/qmp-spec.html>`_
+(“QMP”) library written in Python, using `asyncio
+<https://docs.python.org/3/library/asyncio.html>`_. It is used to send
+QMP messages to running `QEMU <https://www.qemu.org/>`_ emulators. It
+requires Python 3.8+ and has no mandatory dependencies.
+
+This library can be used to communicate with QEMU emulators, the `QEMU
+Guest Agent
+<https://qemu.readthedocs.io/en/latest/interop/qemu-ga.html>`_ (QGA),
+the `QEMU Storage Daemon
+<https://qemu.readthedocs.io/en/latest/tools/qemu-storage-daemon.html>`_
+(QSD), or any other utility or application that `speaks QMP
+<https://www.qemu.org/docs/master/interop/qmp-spec.html>`_.
+
+This library makes as few assumptions as possible about the actual
+version or what type of endpoint it will be communicating with;
+i.e. this library does not contain command definitions and does not seek
+to be an SDK or a replacement for tools like `libvirt
+<https://libvirt.org/>`_ or `virsh
+<https://libvirt.org/manpages/virsh.html>`_. It is "simply" the protocol
+(QMP) and not the vocabulary (`QAPI
+<https://www.qemu.org/docs/master/devel/qapi-code-gen.html>`_). It is up
+to the library user (you!) to know which commands and arguments you want
+to send.
+
+
+Who is this library for?
+------------------------
+
+It is firstly for developers of QEMU themselves; as the test
+infrastructure of QEMU itself needs a convenient and scriptable
+interface for testing QEMU. This library was split out of the QEMU
+source tree in order to share a reference version of a QMP library that
+was usable both within and outside of the QEMU source tree.
+
+Second, it's for those who are developing *for* QEMU by adding new
+architectures, devices, or functionality; as well as targeting those who
+are developing *with* QEMU, i.e. developers working on integrating QEMU
+features into other projects such as libvirt, KubeVirt, Kata Containers,
+etc. Occasionally, using existing virtual-machine (VM) management stacks
+that integrate QEMU+KVM can make developing, testing, and debugging
+features difficult. In these cases, having more 'raw' access to QEMU is
+beneficial. This library is for you.
+
+Lastly, it's for power users who already use QEMU directly without the
+aid of libvirt because they require the raw control and power this
+affords them.
+
+
+Who isn't this library for?
+---------------------------
+
+It is not designed for anyone looking for a turn-key solution for VM
+management. QEMU is a low-level component that resembles a particularly
+impressive Swiss Army knife. This library does not manage that
+complexity and is largely "VM-ignorant". It's not a replacement for
+projects like `libvirt <https://libvirt.org/>`_, `virt-manager
+<https://virt-manager.org/>`_, `GNOME Boxes
+<https://wiki.gnome.org/Apps/Boxes>`_, etc.
+
+
+Installing
+----------
+
+This package can be installed from PyPI with pip::
+
+  > pip3 install qemu.qmp
+
+
+Usage
+-----
+
+Launch QEMU with a monitor, e.g.::
+
+  > qemu-system-x86_64 -qmp unix:qmp.sock,server=on,wait=off
+
+
+Then, at its simplest, script-style usage looks like this::
+
+  import asyncio
+  from qemu.qmp import QMPClient
+
+  async def main():
+      qmp = QMPClient('my-vm-nickname')
+      await qmp.connect('qmp.sock')
+
+      res = await qmp.execute('query-status')
+      print(f"VM status: {res['status']}")
+
+      await qmp.disconnect()
+
+  asyncio.run(main())
+
+
+The above script will connect to the UNIX socket located at
+``qmp.sock``, query the VM's runstate, then print it out
+to the terminal::
+
+  > python3 example.py
+  VM status: running
+
+
+For more complex usages, especially those that make full advantage of
+monitoring asynchronous events, refer to the `online documentation
+<https://qemu.readthedocs.io/projects/python-qemu-qmp/en/latest/>`_ or
+type ``import qemu.qmp; help(qemu.qmp)`` in your Python terminal of
+choice.
+
+
+Contributing
+------------
+
+Contributions are quite welcome! Please file bugs using the `GitLab
+issue tracker
+<https://gitlab.com/qemu-project/python-qemu-qmp/-/issues>`_. This
+project will accept GitLab merge requests, but due to the close
+association with the QEMU project, there are some additional guidelines:
+
+1. Please use the "Signed-off-by" tag in your commit messages. See
+   https://wiki.linuxfoundation.org/dco for more information on this
+   requirement.
+
+2. This repository won't squash merge requests into a single commit on
+   pull; each commit should seek to be self-contained (within reason).
+
+3. Owing to the above, each commit sent as part of a merge request
+   should not introduce any temporary regressions, even if fixed later
+   in the same merge request. This is done to preserve bisectability.
+
+4. Please associate every merge request with at least one `GitLab issue
+   <https://gitlab.com/qemu-project/python-qemu-qmp/-/issues>`_. This
+   helps with generating Changelog text and staying organized. Thank you
+   🙇
+
+
+Developing
+^^^^^^^^^^
+
+Optional packages necessary for running code quality analysis for this
+package can be installed with the optional dependency group "devel":
+``pip install qemu.qmp[devel]``.
+
+``make develop`` can be used to install this package in editable mode
+(to the current environment) *and* bring in testing dependencies in one
+command.
+
+``make check`` can be used to run the available tests. Consult
+``make help`` for other targets and tests that make sense for different
+occasions.
+
+Before submitting a pull request, consider running
+``make check-tox && make check-minreqs`` locally to spot any issues that will
+cause the CI to fail. These checks use their own `virtual environments
+<https://docs.python.org/3/tutorial/venv.html>`_ and won't pollute your working
+space.
+
+
+Stability and Versioning
+------------------------
+
+This package uses a major.minor.micro `SemVer versioning
+<https://semver.org/>`_, with the following additional semantics during
+the alpha/beta period (Major version 0):
+
+This package treats 0.0.z versions as "alpha" versions. Each micro
+version update may change the API incompatibly. Early users are advised
+to pin against explicit versions, but check for updates often.
+
+A planned 0.1.z version will introduce the first "beta", whereafter each
+micro update will be backwards compatible, but each minor update will
+not be. The first beta version will be released after legacy.py is
+removed, and the API is tentatively "stable".
+
+Thereafter, normal `SemVer <https://semver.org/>`_ / `PEP440
+<https://peps.python.org/pep-0440/>`_ rules will apply; micro updates
+will always be bugfixes, and minor updates will be reserved for
+backwards compatible feature changes.
+
+
+Changelog
+---------
+
+0.0.5 (2025-10-02)
+^^^^^^^^^^^^^^^^^^
+
+This is a small point release to fix packaging issues against Fedora
+Rawhide. There are no code changes from v0.0.4.
+
+0.0.4 (2025-10-01)
+^^^^^^^^^^^^^^^^^^
+
+This release primarily adds support for Python 3.14, drops support for
+Python 3.7, and replaces the avocado testing framework with
+pytest. There are some backwards incompatible changes in the synchronous
+legacy API.
+
+- `!41 <https://gitlab.com/qemu-project/python-qemu-qmp/-/merge_requests/41>`_:
+  Python 3.7 support was dropped, Python 3.14 support formally added.
+
+- `!40 <https://gitlab.com/qemu-project/python-qemu-qmp/-/merge_requests/40>`_:
+  Calls utilizing the deprecated behavior of asyncio.get_event_loop()
+  have been removed where applicable and replaced with new calls to
+  util.get_or_create_event_loop()
+
+- `!34 <https://gitlab.com/qemu-project/python-qemu-qmp/-/merge_requests/34>`_:
+  The default read buffer limit is now runtime configurable to
+  accommodate QMP commands with large payloads, as might occur with QEMU
+  guest agent file transfer commands. See also `!37
+  <https://gitlab.com/qemu-project/python-qemu-qmp/-/merge_requests/37>`_. (Contributed
+  by Adam Dorsey)
+
+- `!30 <https://gitlab.com/qemu-project/python-qemu-qmp/-/merge_requests/30>`_:
+  ``legacy.QEMUMonitorProtocol.cmd()`` was renamed to ``cmd_raw()``, and
+  ``legacy.QEMUMonitorProtocol.command()`` was renamed to ``cmd()``. The
+  ``cmd_id`` argument was removed from ``cmd_raw()``. These changes have
+  been backported from the integrated synchronous library in the QEMU
+  tree. (Contributed by Vladimir Sementsov-Ogievskiy)
+
+- `!31 <https://gitlab.com/qemu-project/python-qemu-qmp/-/merge_requests/31>`_,
+  `!32 <https://gitlab.com/qemu-project/python-qemu-qmp/-/merge_requests/32>`_,
+  `!33 <https://gitlab.com/qemu-project/python-qemu-qmp/-/merge_requests/33>`_,
+  `!35 <https://gitlab.com/qemu-project/python-qemu-qmp/-/merge_requests/35>`_,
+  `!36 <https://gitlab.com/qemu-project/python-qemu-qmp/-/merge_requests/36>`_,
+  `!38 <https://gitlab.com/qemu-project/python-qemu-qmp/-/merge_requests/38>`_:
+  Miscellaneous packaging and testing fixes for newer versions of
+  pylint, sphinx, setuptools, readthedocs, Python, etc.
+
+0.0.3 (2023-07-10)
+^^^^^^^^^^^^^^^^^^
+
+This release addresses packaging issues associated with the forthcoming
+release of Python 3.12. This release adds Python 3.12 support, drops
+Python 3.6 support, and switches to PEP-517 native packaging.
+
+- `!25 <https://gitlab.com/qemu-project/python-qemu-qmp/-/merge_requests/25>`_:
+  Drop Python 3.6 support
+- `#30 <https://gitlab.com/qemu-project/python-qemu-qmp/-/issues/30>`_:
+  The read buffer limit has been increased from 256KiB to 10MiB for
+  parity with libvirt's default and to accommodate real-world replies
+  that may exceed the current limit.
+- `#29 <https://gitlab.com/qemu-project/python-qemu-qmp/-/issues/29>`_:
+  The connect() call now accepts existing sockets as an 'address',
+  allowing for easier use of socketpairs to create client/server pairs.
+  This functionality was revised in `!22
+  <https://gitlab.com/qemu-project/python-qemu-qmp/-/merge_requests/22>`_.
+- `!23 <https://gitlab.com/qemu-project/python-qemu-qmp/-/merge_requests/23>`_:
+  Fix deadlock on disconnect under CPython 3.12.
+  See also `<https://github.com/python/cpython/issues/104344>`_.
+- `!24
+  <https://gitlab.com/qemu-project/python-qemu-qmp/-/merge_requests/24>`_:
+  Switch to PEP517 native packaging to coincide with Python 3.12
+  dropping distutils, setuptools from ensurepip, etc.
+
+0.0.2 (2022-08-26)
+^^^^^^^^^^^^^^^^^^
+
+This release primarily fixes development tooling, documentation, and
+packaging issues that have no impact on the library itself. A handful of
+small, runtime visible changes were added as polish.
+
+- `#28 <https://gitlab.com/qemu-project/python-qemu-qmp/-/issues/28>`_:
+  Added manual pages and web docs for qmp-shell[-wrap]
+- `#27 <https://gitlab.com/qemu-project/python-qemu-qmp/-/issues/27>`_:
+  Support building Sphinx docs from SDist files
+- `#26 <https://gitlab.com/qemu-project/python-qemu-qmp/-/issues/26>`_:
+  Add coverage.py support to GitLab merge requests
+- `#25 <https://gitlab.com/qemu-project/python-qemu-qmp/-/issues/25>`_:
+  qmp-shell-wrap now exits gracefully when qemu-system not found.
+- `#24 <https://gitlab.com/qemu-project/python-qemu-qmp/-/issues/24>`_:
+  Minor packaging fixes.
+- `#10 <https://gitlab.com/qemu-project/python-qemu-qmp/-/issues/10>`_:
+  qmp-tui exits gracefully when [tui] extras are not installed.
+- `#09 <https://gitlab.com/qemu-project/python-qemu-qmp/-/issues/9>`_:
+  __repr__ methods have been improved for all custom classes.
+- `#04 <https://gitlab.com/qemu-project/python-qemu-qmp/-/issues/4>`_:
+  Mutating QMPClient.name now also changes logging messages.
+
+0.0.1 (2022-07-20)
+^^^^^^^^^^^^^^^^^^
+
+- Initial public release. (API is still subject to change!)

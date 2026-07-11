@@ -115,29 +115,15 @@ ask_yes_no() {
 
 resolve_default_qemu_dir() {
   local platform="$1"
-  local candidate
 
   case "$platform" in
     macos)
-      for candidate in \
-        "/Volumes/sks/src/qemu-11.0.1/build-sanaka" \
-        "/Volumes/sks/src/qemu-stage" \
-        "/opt/homebrew" \
-        "/usr/local"; do
-        [[ -d "$candidate" ]] && printf '%s\n' "$candidate" && return 0
-      done
+      printf '%s\n' "$HOME/sanaka/qemu/macos"
+      return 0
       ;;
     windows)
-      for candidate in \
-        "$HOME/sanaka/qemu/win" \
-        "/c/Program Files/qemu" \
-        "/c/Program Files/QEMU" \
-        "/mnt/c/Program Files/qemu" \
-        "/mnt/c/Program Files/QEMU" \
-        "C:/Program Files/qemu" \
-        "C:/Program Files/QEMU"; do
-        [[ -d "$candidate" ]] && printf '%s\n' "$candidate" && return 0
-      done
+      printf '%s\n' "$HOME/sanaka/qemu/win"
+      return 0
       ;;
   esac
 
@@ -511,10 +497,7 @@ main() {
     choose_action
     configure_action
     print_summary
-
-    if ask_yes_no "start.confirm_run"; then
-      run_action
-    fi
+    run_action
 
     if ! ask_yes_no "start.ask_again"; then
       sanaka_log "common.exit"

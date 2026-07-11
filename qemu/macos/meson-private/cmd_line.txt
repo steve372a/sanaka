@@ -1,0 +1,26 @@
+[options]
+gtk = disabled
+sdl = disabled
+cocoa = disabled
+curses = disabled
+opengl = disabled
+spice = disabled
+spice_protocol = disabled
+vde = disabled
+libiscsi = disabled
+libssh = disabled
+libusb = disabled
+usb_redir = disabled
+gnutls = disabled
+curl = disabled
+capstone = disabled
+guest_agent = disabled
+slirp = enabled
+audio_drv_list = coreaudio
+b_pie = false
+docs = disabled
+plugins = true
+
+[properties]
+native_file = ['/Users/steve372dzudo/src/qemu-11.0.1/build-sanaka/config-meson.cross']
+

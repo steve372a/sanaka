@@ -177,7 +177,6 @@ sanaka_i18n_put "start.qemu_dir_prompt" 'Enter the path (press Enter to use the 
 sanaka_i18n_put "start.qemu_dir_missing" 'No QEMU directory was provided.'
 sanaka_i18n_put "start.qemu_dir_not_found" 'QEMU directory not found: %s'
 sanaka_i18n_put "start.ask_run_doctor_first" 'Run doctor first before starting Sanaka?'
-sanaka_i18n_put "start.confirm_run" 'Run this plan now?'
 sanaka_i18n_put "start.ask_again" 'Go back and choose another action?'
 sanaka_i18n_put "start.summary_action" 'Action: %s'
 sanaka_i18n_put "start.summary_branch" 'Branch: %s'

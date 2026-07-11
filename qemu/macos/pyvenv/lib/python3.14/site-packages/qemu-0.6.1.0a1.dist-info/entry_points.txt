@@ -1,0 +1,8 @@
+[console_scripts]
+qemu-ga-client = qemu.utils.qemu_ga_client:main
+qom = qemu.utils.qom:main
+qom-fuse = qemu.utils.qom_fuse:QOMFuse.entry_point [fuse]
+qom-get = qemu.utils.qom:QOMGet.entry_point
+qom-list = qemu.utils.qom:QOMList.entry_point
+qom-set = qemu.utils.qom:QOMSet.entry_point
+qom-tree = qemu.utils.qom:QOMTree.entry_point
