@@ -260,7 +260,7 @@ apply_action_choice() {
     9)
       ACTION_ID="pack-linux"
       ACTION_LABEL="$(sanaka_t "start.menu_9")"
-      ACTION_COMMAND=(npm run pack:linux)
+      ACTION_COMMAND=(bash "$ROOT_DIR/scripts/package-sanaka-linux.sh")
       ACTION_QEMU_PLATFORM=""
       ACTION_RUN_DOCTOR_FIRST="true"
       return 0
