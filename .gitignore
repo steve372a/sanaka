@@ -12,6 +12,9 @@ xiaomi-api-key.txt
 
 # Local build artifacts
 build/icon.icns
+.zig-cache/
+qemu/macos/
+qemu/win/
 
 # macOS / editor noise
 .idea/
@@ -23,3 +26,4 @@ docs/assets/archive/
 # Local experiments / unrelated assets
 dos（codex不用看）/
 nul  
+release-upload/
