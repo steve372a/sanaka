@@ -1,6 +1,0 @@
-#!/Users/steve372dzudo/src/qemu-11.0.1/build-sanaka/pyvenv/bin/python3.14
-import sys
-from qemu.utils.qom import QOMGet
-if __name__ == '__main__':
-    sys.argv[0] = sys.argv[0].removesuffix('.exe')
-    sys.exit(QOMGet.entry_point())

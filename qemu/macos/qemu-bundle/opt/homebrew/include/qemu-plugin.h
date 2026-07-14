@@ -1,1 +1,0 @@
-/Users/steve372dzudo/src/qemu-11.0.1/include/plugins/qemu-plugin.h

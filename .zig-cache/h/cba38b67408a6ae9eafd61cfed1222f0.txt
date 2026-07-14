@@ -1,2 +1,0 @@
-0
-285 163629543 1776106215000000000 78d723f506cce2e4d292b755459365d2 1 libc/mingw/lib-common/api-ms-win-crt-environment-l1-1-0.def
