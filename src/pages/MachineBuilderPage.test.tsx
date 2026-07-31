@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppStoreProvider } from '../store/AppStore';
+import { defaultSettings } from '../domain/defaults';
 import { MachineBuilderPage } from './MachineBuilderPage';
 
 const runtimeEnvironment = {
@@ -73,6 +74,9 @@ function mockElectronApi() {
     },
     runtime: {
       detectQemu: vi.fn(async () => runtimeEnvironment),
+      scanQemuDirectories: vi.fn(async () => ({ candidates: [], roots: [], scannedDirectories: 0, skippedDirectories: 0, elapsedMs: 0, cancelled: false, truncated: false })),
+      cancelQemuDirectoryScan: vi.fn(async () => ({ ok: true as const, cancelled: false })),
+      validateQemuDirectory: vi.fn(async () => ({ ok: false })),
       getRuntimeEnvironment: vi.fn(async () => runtimeEnvironment),
       buildQemuArgList: vi.fn(async (machine) => ({
         args: [
@@ -265,6 +269,39 @@ describe('MachineBuilderPage', () => {
     expect(screen.getByRole('option', { name: 'HAX（Windows）' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'WHPX（Windows）' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'HVF（macOS）' })).toBeInTheDocument();
+  });
+
+  it('shows QEMU option values without annotations when raw display is enabled', async () => {
+    window.electronAPI.settings.load = vi.fn(async () => ({
+      ...defaultSettings,
+      experimental: { ...defaultSettings.experimental, rawQemuValues: true }
+    }));
+    const user = userEvent.setup();
+
+    render(
+      <AppStoreProvider>
+        <MemoryRouter initialEntries={['/machines/new']}>
+          <Routes>
+            <Route path="/machines/new" element={<MachineBuilderPage />} />
+          </Routes>
+        </MemoryRouter>
+      </AppStoreProvider>
+    );
+
+    const accelerator = await screen.findByRole('button', { name: '加速方式' });
+    await waitFor(() => expect(accelerator).toHaveTextContent('tcg'));
+    await user.click(accelerator);
+
+    expect(screen.getByRole('option', { name: 'hvf' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'mttcg' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'HVF（macOS）' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('option', { name: 'tcg' }));
+    await user.click(screen.getByRole('button', { name: '添加磁盘' }));
+    await user.click(screen.getByRole('button', { name: '创建镜像' }));
+
+    expect(screen.getByText('qcow2')).toBeInTheDocument();
+    expect(screen.queryByText('QCOW2 (QEMU)')).not.toBeInTheDocument();
   });
 
   it('keeps the full architecture list visible for non-custom templates', async () => {

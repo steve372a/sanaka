@@ -1,14 +1,29 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { VncViewerPage } from './VncViewerPage';
 import type { ExternalVncSession } from '../types/electron';
 
+interface MockViewportProps {
+  websocketUrl?: string | null;
+  password?: string;
+  onCredentialsRequired?: () => Promise<{ password?: string } | null>;
+  onConnectionStateChange?: (state: string) => void;
+  onSecurityFailure?: () => void;
+}
+
+const { viewportProps } = vi.hoisted(() => ({
+  viewportProps: { current: null as MockViewportProps | null }
+}));
+
 vi.mock('../components/NoVncViewport', () => ({
-  NoVncViewport: (props: { websocketUrl?: string | null; password?: string }) => (
+  NoVncViewport: (props: MockViewportProps) => {
+    viewportProps.current = props;
+    return (
     <div data-testid="novnc-viewport" data-url={props.websocketUrl ?? ''} data-password={props.password ?? ''} />
-  )
+    );
+  }
 }));
 
 vi.mock('../hooks/useT', () => ({
@@ -23,6 +38,14 @@ vi.mock('../hooks/useT', () => ({
       'viewer.waitingConnection': 'Waiting for connection…',
       'viewer.sessionNotFound': 'This VNC session does not exist or has been closed.',
       'viewer.unavailable': 'Unavailable',
+      'viewer.passwordRequiredTitle': 'The remote machine requires a VNC password',
+      'viewer.passwordLabel': 'VNC Password',
+      'viewer.rememberPassword': 'Remember password',
+      'viewer.passwordStorageUnavailable': 'Secure storage unavailable.',
+      'viewer.errorAuthFailed': 'Wrong password',
+      'viewer.connect': 'Connect',
+      'viewer.connecting': 'Connecting…',
+      'app.cancel': 'Cancel',
       'console.scaleFit': 'Fit Window',
       'console.scaleNative': '100%',
       'console.scaleStretch': 'Stretch',
@@ -82,7 +105,7 @@ describe('VncViewerPage', () => {
     const viewport = await screen.findByTestId('novnc-viewport');
     expect(viewport).toBeInTheDocument();
     expect(viewport.getAttribute('data-url')).toBe('ws://127.0.0.1:39281/api/viewer/vnc/session-1');
-    expect(viewport.getAttribute('data-password')).toBe('secret');
+    expect(viewport.getAttribute('data-password')).toBe('');
     expect(getExternalVncSession).toHaveBeenCalledWith('session-1');
 
     expect(screen.getByText('VNC Viewer')).toBeInTheDocument();
@@ -124,5 +147,71 @@ describe('VncViewerPage', () => {
     await waitFor(() => {
       expect(closeExternalVncSession).toHaveBeenCalledWith('session-1');
     });
+  });
+
+  it('asks for a password only when noVNC reports that credentials are required', async () => {
+    const user = userEvent.setup();
+    const session = makeSession({ hasPassword: false });
+    const getExternalVncCredential = vi.fn(async () => ({
+      ok: true,
+      password: null,
+      remembered: false,
+      passwordStorageAvailable: true
+    }));
+    const setExternalVncCredential = vi.fn(async () => ({ ok: true }));
+
+    window.electronAPI = {
+      viewer: {
+        getExternalVncSession: vi.fn(async () => session),
+        closeExternalVncSession: vi.fn(async () => ({ ok: true })),
+        getExternalVncCredential,
+        setExternalVncCredential
+      }
+    } as never;
+    vi.stubGlobal('location', new URL('http://127.0.0.1:39281/'));
+
+    renderViewerAt('/viewer/vnc/session-1');
+    await screen.findByTestId('novnc-viewport');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    let credentialPromise: Promise<{ password?: string } | null> | undefined;
+    await act(async () => {
+      credentialPromise = viewportProps.current?.onCredentialsRequired?.();
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByRole('heading', { name: 'The remote machine requires a VNC password' })).toBeInTheDocument();
+    await user.type(screen.getByLabelText('VNC Password'), 'secret');
+    await user.click(screen.getByLabelText('Remember password'));
+    await user.click(screen.getByRole('button', { name: 'Connect' }));
+
+    await expect(credentialPromise).resolves.toEqual({ password: 'secret' });
+    expect(setExternalVncCredential).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      password: 'secret',
+      rememberPassword: true
+    });
+  });
+
+  it('records the device only after noVNC reaches the connected state', async () => {
+    const recordExternalVncConnection = vi.fn(async () => ({ ok: true }));
+    window.electronAPI = {
+      viewer: {
+        getExternalVncSession: vi.fn(async () => makeSession()),
+        closeExternalVncSession: vi.fn(async () => ({ ok: true })),
+        recordExternalVncConnection
+      }
+    } as never;
+    vi.stubGlobal('location', new URL('http://127.0.0.1:39281/'));
+
+    renderViewerAt('/viewer/vnc/session-1');
+    await screen.findByTestId('novnc-viewport');
+    expect(recordExternalVncConnection).not.toHaveBeenCalled();
+
+    act(() => viewportProps.current?.onConnectionStateChange?.('connected'));
+    await waitFor(() => expect(recordExternalVncConnection).toHaveBeenCalledWith('session-1'));
+
+    act(() => viewportProps.current?.onConnectionStateChange?.('connected'));
+    expect(recordExternalVncConnection).toHaveBeenCalledTimes(1);
   });
 });

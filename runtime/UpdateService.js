@@ -3,9 +3,18 @@ const { parse: parseToml } = require('smol-toml');
 const UPDATE_CHANNELS = ['release', 'beta'];
 const DEFAULT_STARTUP_DELAY_MS = 5_000;
 const DEFAULT_CHECK_INTERVAL_MS = 8 * 60 * 60 * 1_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 5_000;
+const GITHUB_RAW_BASE_URL = 'https://raw.githubusercontent.com/steve372a/sanaka/main/updates';
+const GHPROXY_BASE_URL = 'https://ghproxy.net/';
 const DEFAULT_MANIFEST_URLS = {
-  release: 'https://steve372a.github.io/update/release.toml',
-  beta: 'https://steve372a.github.io/update/beta.toml'
+  release: [
+    `${GITHUB_RAW_BASE_URL}/release.toml`,
+    `${GHPROXY_BASE_URL}${GITHUB_RAW_BASE_URL}/release.toml`
+  ],
+  beta: [
+    `${GITHUB_RAW_BASE_URL}/beta.toml`,
+    `${GHPROXY_BASE_URL}${GITHUB_RAW_BASE_URL}/beta.toml`
+  ]
 };
 
 function detectUpdateChannel(version) {
@@ -110,6 +119,7 @@ class UpdateService {
     this.forcedRemoteVersion = typeof options.forcedRemoteVersion === 'string' ? options.forcedRemoteVersion.trim() : '';
     this.startupDelayMs = options.startupDelayMs ?? DEFAULT_STARTUP_DELAY_MS;
     this.checkIntervalMs = options.checkIntervalMs ?? DEFAULT_CHECK_INTERVAL_MS;
+    this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.currentChannel = detectUpdateChannel(this.appVersion);
     this.timer = null;
     this.interval = null;
@@ -222,12 +232,7 @@ class UpdateService {
     const channelsToCheck = this.currentChannel === 'beta' ? ['beta', 'release'] : ['release'];
     const results = await Promise.all(
       channelsToCheck.map(async (channel) => {
-        const url = this.manifestUrls[channel];
-        const response = await this.fetchImpl(url, { headers: { 'cache-control': 'no-cache' } });
-        if (!response.ok) {
-          throw new Error(`Update source for ${channel} returned ${response.status}.`);
-        }
-        const text = await response.text();
+        const text = await this.#fetchManifestText(channel);
         const manifest = normalizeManifest(parseToml(text));
         if (this.forcedRemoteVersion) {
           return {
@@ -240,10 +245,40 @@ class UpdateService {
     );
     return results.filter(Boolean);
   }
+
+  async #fetchManifestText(channel) {
+    const configured = this.manifestUrls[channel];
+    const urls = Array.isArray(configured) ? configured : [configured];
+    const failures = [];
+
+    for (const url of urls.filter(Boolean)) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+      try {
+        const response = await this.fetchImpl(url, {
+          headers: { 'cache-control': 'no-cache' },
+          signal: controller.signal
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        return await response.text();
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        failures.push(`${url}: ${reason}`);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    throw new Error(`Update source for ${channel} is unavailable. ${failures.join(' | ')}`);
+  }
 }
 
 module.exports = {
   UpdateService,
+  DEFAULT_MANIFEST_URLS,
+  DEFAULT_REQUEST_TIMEOUT_MS,
   compareVersions,
   detectUpdateChannel,
   normalizeManifest,

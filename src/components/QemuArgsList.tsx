@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SakaMachine } from '../domain/schemas';
 import type { ControlledQemuBindingKey, FullQemuCommandArgItem, QemuArgItem } from '../types/electron';
+import { isWebMode, showWebModificationNotice } from '../lib/webMode';
 
 const PlusIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
@@ -50,6 +51,7 @@ function isFlagToken(raw: string): boolean {
 }
 
 export function QemuArgsList({ machine, onChange, t }: QemuArgsListProps) {
+  const customArgsLocked = isWebMode();
   const [args, setArgs] = useState<ArgLine[]>([]);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
@@ -215,13 +217,17 @@ export function QemuArgsList({ machine, onChange, t }: QemuArgsListProps) {
   }, [machine]);
 
   const handleAdd = useCallback(() => {
+    if (customArgsLocked) {
+      showWebModificationNotice(t('builder.errors.webCustomArgsLocked'));
+      return;
+    }
     setIsAdding(true);
     setIsExpanded(true);
     setEditingId(null);
     setEditValue('');
     setError(null);
     setTimeout(() => addTextareaRef.current?.focus(), 0);
-  }, []);
+  }, [customArgsLocked, t]);
 
   const handleCancelAdd = useCallback(() => {
     setIsAdding(false);
@@ -265,11 +271,15 @@ export function QemuArgsList({ machine, onChange, t }: QemuArgsListProps) {
 
   const handleRemove = useCallback(
     async (customIndex: number | undefined) => {
+      if (customArgsLocked) {
+        showWebModificationNotice(t('builder.errors.webCustomArgsLocked'));
+        return;
+      }
       if (typeof customIndex !== 'number' || customIndex < 0) return;
       const nextCustom = currentCustomArgs().filter((_, i) => i !== customIndex);
       await refreshFromCustomArgs(nextCustom);
     },
-    [currentCustomArgs, refreshFromCustomArgs]
+    [currentCustomArgs, customArgsLocked, refreshFromCustomArgs, t]
   );
 
   const handleRemoveControlled = useCallback(
@@ -362,6 +372,7 @@ export function QemuArgsList({ machine, onChange, t }: QemuArgsListProps) {
           className="qemu-args-list__add-btn"
           type="button"
           onClick={handleAdd}
+          aria-disabled={customArgsLocked}
           title={t('builder.actions.addArg')}
           aria-label={t('builder.actions.addArg')}
         >

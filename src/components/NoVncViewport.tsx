@@ -17,6 +17,10 @@ export interface NoVncViewportHandle {
   sendText: (text: string) => void;
 }
 
+export interface NoVncCredentials {
+  password: string;
+}
+
 type InternalRfb = RFB & {
   _sendMouse?: (x: number, y: number, mask: number) => void;
   showDotCursor?: boolean;
@@ -47,7 +51,10 @@ export const NoVncViewport = forwardRef<NoVncViewportHandle, {
   className?: string;
   reconnectWindowMs?: number;
   initialDelayMs?: number;
+  connectionKey?: number;
   onConnectionStateChange?: (state: DisplayConnectionState) => void;
+  onCredentialsRequired?: () => Promise<NoVncCredentials | null>;
+  onSecurityFailure?: () => void;
   scaleMode?: NoVncScaleMode;
   inputMode?: NoVncInputMode;
 }>(function NoVncViewportInner({
@@ -59,7 +66,10 @@ export const NoVncViewport = forwardRef<NoVncViewportHandle, {
   className = '',
   reconnectWindowMs = 15000,
   initialDelayMs = 0,
+  connectionKey = 0,
   onConnectionStateChange,
+  onCredentialsRequired,
+  onSecurityFailure,
   scaleMode = 'fit',
   inputMode = 'touch'
 }, ref) {
@@ -73,6 +83,8 @@ export const NoVncViewport = forwardRef<NoVncViewportHandle, {
   const initialDelayTimerRef = useRef<number | null>(null);
   const reconnectStartedAtRef = useRef<number | null>(null);
   const onConnectionStateChangeRef = useRef(onConnectionStateChange);
+  const onCredentialsRequiredRef = useRef(onCredentialsRequired);
+  const onSecurityFailureRef = useRef(onSecurityFailure);
   const inputModeRef = useRef<NoVncInputMode>(inputMode);
   const renderFrameRef = useRef<number | null>(null);
   const inertiaFrameRef = useRef<number | null>(null);
@@ -414,6 +426,14 @@ export const NoVncViewport = forwardRef<NoVncViewportHandle, {
   }, [onConnectionStateChange]);
 
   useEffect(() => {
+    onCredentialsRequiredRef.current = onCredentialsRequired;
+  }, [onCredentialsRequired]);
+
+  useEffect(() => {
+    onSecurityFailureRef.current = onSecurityFailure;
+  }, [onSecurityFailure]);
+
+  useEffect(() => {
     onConnectionStateChangeRef.current?.(connectionState);
   }, [connectionState]);
 
@@ -460,6 +480,8 @@ export const NoVncViewport = forwardRef<NoVncViewportHandle, {
     }
 
     let disposed = false;
+    let credentialsRequestPending = false;
+    let securityFailed = false;
     if (reconnectTimerRef.current != null) {
       window.clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
@@ -498,6 +520,10 @@ export const NoVncViewport = forwardRef<NoVncViewportHandle, {
 
     const handleDisconnect = (event: Event) => {
       if (disposed) return;
+      if (securityFailed) {
+        setConnectionState('unavailable');
+        return;
+      }
       const detail = (event as CustomEvent<{ clean?: boolean }>).detail;
       const now = Date.now();
       if (reconnectStartedAtRef.current == null) {
@@ -518,18 +544,33 @@ export const NoVncViewport = forwardRef<NoVncViewportHandle, {
       }, detail?.clean ? 500 : 900);
     };
 
-    const handleCredentialsRequired = () => {
-      if (disposed) return;
+    const handleCredentialsRequired = async () => {
+      if (disposed || credentialsRequestPending) return;
       if (password) {
         rfb.sendCredentials({ password });
         return;
       }
-      setConnectionState('unavailable');
+      const requestCredentials = onCredentialsRequiredRef.current;
+      if (!requestCredentials) {
+        setConnectionState('unavailable');
+        return;
+      }
+      credentialsRequestPending = true;
+      try {
+        const credentials = await requestCredentials();
+        if (!disposed && credentials?.password) {
+          rfb.sendCredentials(credentials);
+        }
+      } finally {
+        credentialsRequestPending = false;
+      }
     };
 
     const handleSecurityFailure = () => {
       if (disposed) return;
+      securityFailed = true;
       setConnectionState('unavailable');
+      onSecurityFailureRef.current?.();
     };
 
     rfb.addEventListener('connect', handleConnect);
@@ -563,7 +604,7 @@ export const NoVncViewport = forwardRef<NoVncViewportHandle, {
         rfbRef.current = null;
       }
     };
-  }, [active, connectionAttempt, displayReady, machineRunning, password, reconnectWindowMs, url]);
+  }, [active, connectionAttempt, connectionKey, displayReady, machineRunning, password, reconnectWindowMs, url]);
 
   // Apply scale mode to noVNC canvas
   useEffect(() => {

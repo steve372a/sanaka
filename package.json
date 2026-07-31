@@ -1,7 +1,7 @@
 {
   "name": "sanaka",
   "productName": "Sanaka",
-  "version": "0.0.3-beta",
+  "version": "0.0.4-beta",
   "description": "Sanaka desktop frontend",
   "main": "main.js",
   "scripts": {
@@ -31,7 +31,8 @@
     "artifactBuildCompleted": "build/artifact-build-completed.js",
     "electronDist": "node_modules/electron/dist",
     "extraResources": [
-      "iso/**/*"
+      "iso/**/*",
+      "video/**/*"
     ],
     "directories": {
       "output": "release"

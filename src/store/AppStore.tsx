@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { defaultSettings } from '../domain/defaults';
 import {
   appSettingsSchema,
@@ -15,6 +15,7 @@ import type { RuntimeMachineState, UpdateAvailableEvent, UpdateCheckResult, Upda
 import { builtInTemplates, createMachineFromTemplate, createMachineFromTemplateDocument, normalizeMachineCompatibility } from '../domain/templates';
 import { resources } from '../i18n/resources';
 import { makeRecentEntry } from '../lib/machine';
+import type { FullscreenTransitionOrigin, FullscreenTransitionState, FullscreenTransitionType } from '../lib/fullscreenTransition';
 import { parseSakaContent, sanitizeMachineName, serializeSakaMachine } from '../lib/saka';
 
 function normalizeSettingsForMainline(settings: AppSettings): AppSettings {
@@ -171,6 +172,7 @@ interface AppStoreValue {
   initialize: () => Promise<void>;
   setLanguage: (language: AppSettings['language']) => Promise<void>;
   setTheme: (theme: AppSettings['theme']) => Promise<void>;
+  setReduceMotion: (reduceMotion: boolean) => Promise<void>;
   setAboutOpen: (open: boolean) => void;
   createDraftFromTemplateKey: (templateKey: string) => Promise<void>;
   applyTemplateSelection: (templateKey: string) => Promise<void>;
@@ -193,8 +195,8 @@ interface AppStoreValue {
   startMachine: (machinePath: string) => Promise<StartMachineActionResult>;
   stopMachine: (id: string) => Promise<boolean>;
   forceStopMachine: (id: string) => Promise<boolean>;
-  transition: { active: boolean; type: 'launch' | 'console' | 'delete' };
-  triggerTransition: (type: 'launch' | 'console' | 'delete', action: () => void | Promise<void>) => void;
+  transition: FullscreenTransitionState;
+  triggerTransition: (type: FullscreenTransitionType, action: () => void | Promise<void>, origin?: FullscreenTransitionOrigin) => void;
   deleteTarget: { path: string; title: string } | null;
   setDeleteTarget: (target: { path: string; title: string } | null) => void;
   startError: { title: string; description: string; detail?: string } | null;
@@ -289,7 +291,8 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [runtimeEnvironment, setRuntimeEnvironment] = useState<Awaited<ReturnType<typeof window.electronAPI.runtime.getRuntimeEnvironment>> | null>(null);
   const [runtimeMachines, setRuntimeMachines] = useState<Awaited<ReturnType<typeof window.electronAPI.runtime.listRunningMachines>>>([]);
-  const [transition, setTransition] = useState<{ active: boolean; type: 'launch' | 'console' | 'delete' }>({ active: false, type: 'launch' });
+  const [transition, setTransition] = useState<FullscreenTransitionState>({ active: false, type: 'launch', origin: null, phase: 'covering' });
+  const transitionRunRef = useRef(0);
   const [deleteTarget, setDeleteTarget] = useState<{ path: string; title: string } | null>(null);
   const [startError, setStartError] = useState<{ title: string; description: string; detail?: string } | null>(null);
   const [updateCurrentInfo, setUpdateCurrentInfo] = useState<UpdateCurrentInfo | null>(null);
@@ -325,6 +328,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     setUpdateCurrentInfo(updaterInfo);
     document.body.classList.toggle('platform-darwin', meta.platform === 'darwin');
     document.documentElement.setAttribute('data-theme', nextSettings.theme);
+    document.documentElement.setAttribute('data-reduced-motion', String(nextSettings.reduceMotion));
     setReady(true);
   }, []);
 
@@ -461,6 +465,14 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     [persistSettings, settings]
   );
 
+  const setReduceMotion = useCallback(
+    async (reduceMotion: boolean) => {
+      document.documentElement.setAttribute('data-reduced-motion', String(reduceMotion));
+      await persistSettings({ ...settings, reduceMotion });
+    },
+    [persistSettings, settings]
+  );
+
   const pushRecent = useCallback(async (entry: RecentEntry) => {
     const next = (await window.electronAPI.recents.push(entry)) as RecentEntry[];
     const parsed = recentEntrySchema.array().parse(next);
@@ -507,8 +519,14 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       const template = await readTemplateByKey(settings, templateKey);
       if (!template || !draft) return;
       const nextMachine = createMachineFromTemplateDocument(await sanitizeImportedTemplateDocument(template));
+      nextMachine.id = draft.machine.id;
       nextMachine.title = draft.machine.title || nextMachine.title;
-      nextMachine.meta.notes = draft.machine.meta.notes;
+      nextMachine.description = draft.machine.description;
+      nextMachine.author = draft.machine.author;
+      nextMachine.created_with = draft.machine.created_with;
+      nextMachine.created_at = draft.machine.created_at;
+      nextMachine.updated_at = new Date().toISOString();
+      nextMachine.meta = structuredClone(draft.machine.meta);
       setDraft({ ...draft, machine: nextMachine, dirty: true });
       setActivity((current) => [
         makeActivity(
@@ -942,15 +960,32 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     [settings.language]
   );
 
-  const triggerTransition = useCallback((type: 'launch' | 'console' | 'delete', action: () => void | Promise<void>) => {
-    setTransition({ active: true, type });
-    setTimeout(() => {
-      void Promise.resolve(action()).catch(() => undefined);
-    }, 450);
-    setTimeout(() => {
-      setTransition({ active: false, type: 'launch' });
-    }, 1000);
-  }, []);
+  const triggerTransition = useCallback((type: FullscreenTransitionType, action: () => void | Promise<void>, origin?: FullscreenTransitionOrigin) => {
+    const run = transitionRunRef.current + 1;
+    transitionRunRef.current = run;
+    const viewportWidth = Math.max(window.innerWidth, 1);
+    const viewportHeight = Math.max(window.innerHeight, 1);
+    const normalizedOrigin = origin && origin.size > 0
+      ? origin
+      : { x: viewportWidth / 2, y: viewportHeight / 2, size: 64 };
+    const reducedMotion = settings.reduceMotion || (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
+    const coverDuration = reducedMotion ? 100 : 680;
+
+    setTransition({ active: true, type, origin: normalizedOrigin, phase: 'covering' });
+    window.setTimeout(() => {
+      void Promise.resolve()
+        .then(action)
+        .catch(() => undefined)
+        .finally(() => {
+          if (transitionRunRef.current !== run) return;
+          setTransition({ active: true, type, origin: normalizedOrigin, phase: 'revealing' });
+          window.setTimeout(() => {
+            if (transitionRunRef.current !== run) return;
+            setTransition({ active: false, type: 'launch', origin: null, phase: 'covering' });
+          }, reducedMotion ? 120 : 360);
+        });
+    }, coverDuration);
+  }, [settings.reduceMotion]);
 
   const renameMachine = useCallback(
     async (machinePath: string, newTitle: string) => {
@@ -1105,6 +1140,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       initialize,
       setLanguage,
       setTheme,
+      setReduceMotion,
       setAboutOpen,
       createDraftFromTemplateKey,
       applyTemplateSelection,
@@ -1159,6 +1195,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       saveDraft,
       setLanguage,
       setTheme,
+      setReduceMotion,
       settings,
       updateDraft,
       updateTemplateCatalog,

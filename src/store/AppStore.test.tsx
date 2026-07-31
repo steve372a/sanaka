@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppStoreProvider, useAppStore } from './AppStore';
@@ -83,6 +83,9 @@ function mockElectronApi() {
     },
     runtime: {
       detectQemu: vi.fn(async () => runtimeEnvironment),
+      scanQemuDirectories: vi.fn(async () => ({ candidates: [], roots: [], scannedDirectories: 0, skippedDirectories: 0, elapsedMs: 0, cancelled: false, truncated: false })),
+      cancelQemuDirectoryScan: vi.fn(async () => ({ ok: true as const, cancelled: false })),
+      validateQemuDirectory: vi.fn(async () => ({ ok: false })),
       getRuntimeEnvironment: vi.fn(async () => runtimeEnvironment),
       previewMachineCommand: vi.fn(async () => ({
         machineId: 'machine-1',
@@ -134,7 +137,7 @@ function mockElectronApi() {
 }
 
 function StoreHarness() {
-  const { ready, draft, openSakaByPath, recents, updateDraft, startMachine, importTemplateFromDialog, activity } = useAppStore();
+  const { ready, draft, openSakaByPath, recents, updateDraft, startMachine, importTemplateFromDialog, activity, transition, triggerTransition } = useAppStore();
 
   if (!ready) {
     return <div>loading</div>;
@@ -169,8 +172,19 @@ function StoreHarness() {
       <button type="button" onClick={() => void importTemplateFromDialog()}>
         import-template
       </button>
+      <button
+        type="button"
+        onClick={() => triggerTransition('launch', () => {
+          document.body.dataset.transitionAction = 'done';
+        }, { x: 140, y: 90, size: 72 })}
+      >
+        transition
+      </button>
       <div>{activity[0]?.title ?? ''}</div>
       <div data-testid="recent-titles">{recents.map((item) => item.title).join('|')}</div>
+      <div data-testid="transition-state">
+        {transition.active ? `${transition.phase}:${transition.origin?.x}:${transition.origin?.y}:${transition.origin?.size}` : 'inactive'}
+      </div>
     </div>
   );
 }
@@ -178,6 +192,7 @@ function StoreHarness() {
 describe('AppStore startMachine', () => {
   beforeEach(() => {
     mockElectronApi();
+    delete document.body.dataset.transitionAction;
   });
 
   it('saves a dirty machine before starting so runtime reads the updated accelerator', async () => {
@@ -268,5 +283,38 @@ describe('AppStore startMachine', () => {
       expect(screen.getByTestId('recent-titles').textContent).toBe('Other Machine|Windows Dev Box');
     });
     expect(pushSpy).not.toHaveBeenCalled();
+  });
+
+  it('waits for full coverage before running the action, then reveals the destination', async () => {
+    render(
+      <AppStoreProvider>
+        <StoreHarness />
+      </AppStoreProvider>
+    );
+
+    const transitionButton = await screen.findByRole('button', { name: 'transition' });
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(transitionButton);
+      expect(screen.getByTestId('transition-state')).toHaveTextContent('covering:140:90:72');
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(679);
+      });
+      expect(document.body.dataset.transitionAction).toBeUndefined();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(document.body.dataset.transitionAction).toBe('done');
+      expect(screen.getByTestId('transition-state')).toHaveTextContent('revealing:140:90:72');
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(360);
+      });
+      expect(screen.getByTestId('transition-state')).toHaveTextContent('inactive');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

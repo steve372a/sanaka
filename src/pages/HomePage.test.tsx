@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppHeader } from '../components/AppHeader';
+import { defaultSettings } from '../domain/defaults';
 import { createMachineFromTemplate } from '../domain/templates';
 import { serializeSakaMachine } from '../lib/saka';
 import { AppStoreProvider } from '../store/AppStore';
@@ -30,7 +31,7 @@ const runtimeEnvironment = {
   installHint: ''
 };
 
-function mockElectronApi(recents: Array<Record<string, unknown>> = []) {
+function mockElectronApi(recents: Array<Record<string, unknown>> = [], webModeEnabled = false) {
   const machine = createMachineFromTemplate('win11');
   machine.id = 'machine-1';
   machine.title = 'Windows Dev Box';
@@ -77,7 +78,13 @@ function mockElectronApi(recents: Array<Record<string, unknown>> = []) {
       listLocalImages: vi.fn(async () => ({ images: [] }))
     },
     settings: {
-      load: vi.fn(async () => null),
+      load: vi.fn(async () => webModeEnabled ? {
+        ...defaultSettings,
+        experimental: {
+          ...defaultSettings.experimental,
+          webMode: true
+        }
+      } : null),
       save: vi.fn(async (settings) => settings)
     },
     recents: {
@@ -88,6 +95,9 @@ function mockElectronApi(recents: Array<Record<string, unknown>> = []) {
     },
     runtime: {
       detectQemu: vi.fn(async () => runtimeEnvironment),
+      scanQemuDirectories: vi.fn(async () => ({ candidates: [], roots: [], scannedDirectories: 0, skippedDirectories: 0, elapsedMs: 0, cancelled: false, truncated: false })),
+      cancelQemuDirectoryScan: vi.fn(async () => ({ ok: true as const, cancelled: false })),
+      validateQemuDirectory: vi.fn(async () => ({ ok: false })),
       getRuntimeEnvironment: vi.fn(async () => runtimeEnvironment),
       previewMachineCommand: vi.fn(async () => ({
         machineId: 'machine-1',
@@ -168,11 +178,12 @@ describe('HomePage', () => {
     expect((await screen.findAllByText('还没有虚拟机')).length).toBeGreaterThan(0);
     expect(screen.getAllByText('还没有虚拟机').length).toBeGreaterThan(0);
     expect(screen.getAllByText('打开虚拟机配置').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: '减弱动态效果' })).not.toBeInTheDocument();
     expect(screen.queryByText('Build a machine, not a checklist.')).not.toBeInTheDocument();
     expect(screen.queryByText(/\.saka/)).not.toBeInTheDocument();
   });
 
-  it('renders recent machines as thumbnail cards and keeps settings reachable from the sidebar', async () => {
+  it('uses the shared machine details view for the current recent machine', async () => {
     mockElectronApi([
       {
         id: 'machine-1',
@@ -189,8 +200,9 @@ describe('HomePage', () => {
     renderHome();
 
     expect(await screen.findByRole('heading', { name: 'Windows Dev Box' })).toBeInTheDocument();
-    expect(screen.getAllByText('已保存').length).toBeGreaterThan(0);
-    expect(screen.getByText('当前虚拟机')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '配置' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: '编辑配置' })).toHaveLength(1);
+    expect(screen.queryByText('当前虚拟机')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '设置' }));
 
@@ -221,7 +233,7 @@ describe('HomePage', () => {
 
   it('opens web mode from the top tools menu', async () => {
     const user = userEvent.setup();
-    mockElectronApi();
+    mockElectronApi([], true);
     renderHome();
 
     await user.click(await screen.findByRole('button', { name: '更多' }));
@@ -240,7 +252,7 @@ describe('HomePage', () => {
       }
     });
 
-    mockElectronApi();
+    mockElectronApi([], true);
     (window.electronAPI.app.getWebModeState as ReturnType<typeof vi.fn>).mockResolvedValue({
       active: true,
       url: 'http://127.0.0.1:39281/',
@@ -266,7 +278,7 @@ describe('HomePage', () => {
   it('opens the browser again from the web mode info dialog', async () => {
     const user = userEvent.setup();
 
-    mockElectronApi();
+    mockElectronApi([], true);
     (window.electronAPI.app.getWebModeState as ReturnType<typeof vi.fn>).mockResolvedValue({
       active: true,
       url: 'http://127.0.0.1:39281/',

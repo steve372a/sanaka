@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { NoVncViewport, type DisplayConnectionState, type NoVncScaleMode } from '../components/NoVncViewport';
+import { useNavigate, useParams } from 'react-router-dom';
+import { NoVncViewport, type DisplayConnectionState, type NoVncCredentials, type NoVncScaleMode } from '../components/NoVncViewport';
+import { VncPasswordDialog } from '../components/VncPasswordDialog';
 import { useT } from '../hooks/useT';
 import type { ExternalVncSession } from '../types/electron';
 
@@ -45,17 +46,10 @@ function resolveWebsocketUrl(session: ExternalVncSession | null): string | null 
   return session.websocketUrl || session.networkWebsocketUrl || session.localWebsocketUrl || null;
 }
 
-interface LocationState {
-  password?: string;
-}
-
 export function VncViewerPage() {
   const t = useT();
   const navigate = useNavigate();
-  const location = useLocation();
   const { sessionId } = useParams<{ sessionId: string }>();
-  const locationState = (location.state ?? null) as LocationState | null;
-  const password = locationState?.password ?? '';
 
   const [session, setSession] = useState<ExternalVncSession | null>(null);
   const [loading, setLoading] = useState(true);
@@ -63,7 +57,15 @@ export function VncViewerPage() {
   const [connectionState, setConnectionState] = useState<DisplayConnectionState>('waiting-display');
   const [scaleMode, setScaleMode] = useState<NoVncScaleMode>('fit');
   const [disconnecting, setDisconnecting] = useState(false);
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+  const [passwordStorageAvailable, setPasswordStorageAvailable] = useState(false);
+  const [passwordAuthFailed, setPasswordAuthFailed] = useState(false);
+  const [retryPassword, setRetryPassword] = useState('');
+  const [credentialAttempt, setCredentialAttempt] = useState(0);
   const closedRef = useRef(false);
+  const recordedConnectionRef = useRef(false);
+  const rememberedCredentialTriedRef = useRef(false);
+  const credentialResolverRef = useRef<((credentials: NoVncCredentials | null) => void) | null>(null);
 
   const websocketUrl = useMemo(() => resolveWebsocketUrl(session), [session]);
 
@@ -76,6 +78,10 @@ export function VncViewerPage() {
     }
     setLoading(true);
     setNotFound(false);
+    recordedConnectionRef.current = false;
+    rememberedCredentialTriedRef.current = false;
+    setRetryPassword('');
+    setCredentialAttempt(0);
     void window.electronAPI.viewer!.getExternalVncSession!(sessionId)
       .then((result) => {
         if (cancelled) return;
@@ -98,6 +104,8 @@ export function VncViewerPage() {
 
   useEffect(() => {
     return () => {
+      credentialResolverRef.current?.(null);
+      credentialResolverRef.current = null;
       if (closedRef.current || !sessionId) return;
       closedRef.current = true;
       void window.electronAPI.viewer?.closeExternalVncSession?.(sessionId).catch(() => undefined);
@@ -121,6 +129,76 @@ export function VncViewerPage() {
   const handleBack = useCallback(() => {
     navigate('/');
   }, [navigate]);
+
+  const handleCredentialsRequired = useCallback(async (): Promise<NoVncCredentials | null> => {
+    if (!sessionId) return null;
+    if (!rememberedCredentialTriedRef.current) {
+      rememberedCredentialTriedRef.current = true;
+      const result = await window.electronAPI.viewer?.getExternalVncCredential?.(sessionId).catch(() => null);
+      setPasswordStorageAvailable(result?.passwordStorageAvailable === true);
+      if (result?.ok && result.password) {
+        return { password: result.password };
+      }
+    }
+    setPasswordAuthFailed(false);
+    setPasswordDialogOpen(true);
+    return new Promise<NoVncCredentials | null>((resolve) => {
+      credentialResolverRef.current = resolve;
+    });
+  }, [sessionId]);
+
+  const handlePasswordSubmit = useCallback(async (password: string, rememberPassword: boolean) => {
+    if (!sessionId) return;
+    const result = await window.electronAPI.viewer?.setExternalVncCredential?.({
+      sessionId,
+      password,
+      rememberPassword
+    });
+    if (!result?.ok) return;
+    const resolver = credentialResolverRef.current;
+    credentialResolverRef.current = null;
+    setPasswordDialogOpen(false);
+    setPasswordAuthFailed(false);
+    if (resolver) {
+      resolver({ password });
+    } else {
+      setRetryPassword(password);
+      setCredentialAttempt((attempt) => attempt + 1);
+    }
+  }, [sessionId]);
+
+  const handlePasswordCancel = useCallback(() => {
+    credentialResolverRef.current?.(null);
+    credentialResolverRef.current = null;
+    setPasswordDialogOpen(false);
+    void handleDisconnect();
+  }, [handleDisconnect]);
+
+  const handleSecurityFailure = useCallback(() => {
+    if (!sessionId) return;
+    credentialResolverRef.current?.(null);
+    credentialResolverRef.current = null;
+    rememberedCredentialTriedRef.current = true;
+    setPasswordAuthFailed(true);
+    setPasswordDialogOpen(true);
+    const clearCredential = window.electronAPI.viewer?.clearExternalVncCredential;
+    if (!clearCredential) return;
+    void clearCredential({
+      sessionId,
+      forgetRemembered: true
+    }).catch(() => undefined);
+  }, [sessionId]);
+
+  const handleConnectionStateChange = useCallback((state: DisplayConnectionState) => {
+    setConnectionState(state);
+    if (state === 'connected' && sessionId && !recordedConnectionRef.current) {
+      recordedConnectionRef.current = true;
+      const recordConnection = window.electronAPI.viewer?.recordExternalVncConnection;
+      if (recordConnection) {
+        void recordConnection(sessionId).catch(() => undefined);
+      }
+    }
+  }, [sessionId]);
 
   const addressLabel = session?.displayAddress || session?.host || (session ? `${session.host}:${session.port}` : '');
 
@@ -236,13 +314,24 @@ export function VncViewerPage() {
           active
           machineRunning
           websocketUrl={websocketUrl}
-          password={password}
+          password={retryPassword}
           scaleMode={scaleMode}
           inputMode="touch"
           initialDelayMs={0}
-          onConnectionStateChange={setConnectionState}
+          connectionKey={credentialAttempt}
+          onConnectionStateChange={handleConnectionStateChange}
+          onCredentialsRequired={handleCredentialsRequired}
+          onSecurityFailure={handleSecurityFailure}
         />
       </div>
+      <VncPasswordDialog
+        open={passwordDialogOpen}
+        address={addressLabel}
+        passwordStorageAvailable={passwordStorageAvailable}
+        authFailed={passwordAuthFailed}
+        onCancel={handlePasswordCancel}
+        onSubmit={handlePasswordSubmit}
+      />
     </div>
   );
 }

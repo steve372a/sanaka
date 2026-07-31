@@ -200,4 +200,33 @@ describe('NoVncViewport', () => {
     expect(rfbInstances[0].__url).toBe('ws://127.0.0.1:39281/api/viewer/vnc/test-session');
     vi.useRealTimers();
   });
+
+  it('waits for credentials and sends them through the existing RFB connection', async () => {
+    vi.useFakeTimers();
+    rfbInstances.length = 0;
+    const onCredentialsRequired = vi.fn(async () => ({ password: 'secret' }));
+
+    render(
+      <NoVncViewport
+        active
+        machineRunning
+        websocketUrl="ws://127.0.0.1:39281/api/viewer/vnc/test-session"
+        initialDelayMs={0}
+        onCredentialsRequired={onCredentialsRequired}
+      />
+    );
+
+    await act(async () => {
+      vi.advanceTimersByTime(0);
+    });
+    await act(async () => {
+      rfbInstances[0].dispatchEvent(new Event('credentialsrequired'));
+      await Promise.resolve();
+    });
+
+    expect(onCredentialsRequired).toHaveBeenCalledTimes(1);
+    expect(rfbInstances[0].sendCredentials).toHaveBeenCalledWith({ password: 'secret' });
+    expect(rfbInstances).toHaveLength(1);
+    vi.useRealTimers();
+  });
 });

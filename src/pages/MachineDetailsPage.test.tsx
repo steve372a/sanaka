@@ -93,6 +93,9 @@ function mockElectronApi() {
     },
     runtime: {
       detectQemu: vi.fn(async () => runtimeEnvironment),
+      scanQemuDirectories: vi.fn(async () => ({ candidates: [], roots: [], scannedDirectories: 0, skippedDirectories: 0, elapsedMs: 0, cancelled: false, truncated: false })),
+      cancelQemuDirectoryScan: vi.fn(async () => ({ ok: true as const, cancelled: false })),
+      validateQemuDirectory: vi.fn(async () => ({ ok: false })),
       getRuntimeEnvironment: vi.fn(async () => runtimeEnvironment),
       previewMachineCommand: vi.fn(async () => ({
         machineId: 'machine-1',
@@ -190,10 +193,52 @@ describe('MachineDetailsPage', () => {
     );
 
     const startButtons = await screen.findAllByRole('button', { name: '启动虚拟机' });
+    expect(startButtons).toHaveLength(1);
     await user.click(startButtons[0]);
 
     await waitFor(() => {
       expect(window.electronAPI.runtime.startMachine).toHaveBeenCalledWith(machinePath);
     });
+  });
+
+  it('keeps saving inside the configuration editor', async () => {
+    mockElectronApi();
+
+    render(
+      <AppStoreProvider>
+        <MemoryRouter initialEntries={[`/machines/machine-1?path=${encodeURIComponent(machinePath)}`]}>
+          <RoutedShell />
+        </MemoryRouter>
+      </AppStoreProvider>
+    );
+
+    expect(await screen.findByText('Windows Dev Box')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '保存更改' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: '编辑配置' })).toHaveLength(1);
+  });
+
+  it('preserves machine identity when changing templates during editing', async () => {
+    mockElectronApi();
+    const user = userEvent.setup();
+
+    render(
+      <AppStoreProvider>
+        <MemoryRouter initialEntries={[`/machines/machine-1?path=${encodeURIComponent(machinePath)}`]}>
+          <RoutedShell />
+        </MemoryRouter>
+      </AppStoreProvider>
+    );
+
+    const editButtons = await screen.findAllByRole('button', { name: '编辑配置' });
+    await user.click(editButtons[editButtons.length - 1]);
+
+    expect(await screen.findByRole('heading', { name: '编辑虚拟机' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Windows 98/ }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('虚拟机名称')).toHaveValue('Windows Dev Box');
+      expect(screen.queryByText('该虚拟机名称已存在，请使用其他名称。')).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: '保存更改' })).toBeInTheDocument();
   });
 });

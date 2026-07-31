@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AboutDialog } from './components/AboutDialog';
 import { AboutPage } from './components/AboutPage';
@@ -6,7 +6,9 @@ import { AppHeaderWeb } from './components/AppHeaderWeb';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { UpdateReminder } from './components/UpdateReminder';
 import { FullscreenTransition } from './components/FullscreenTransition';
+import { Toast } from './components/Toast';
 import { usePresence } from './hooks/usePresence';
+import { getElementTransitionOrigin } from './lib/fullscreenTransition';
 import { machineRoute } from './lib/routes';
 import { HomePage } from './pages/HomePage';
 import { MachineBuilderPage } from './pages/MachineBuilderPage';
@@ -14,9 +16,13 @@ import { MachineConsolePage } from './pages/MachineConsolePage';
 import { MachineDetailsPage } from './pages/MachineDetailsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { VncViewerPage } from './pages/VncViewerPage';
+import { MachineFilesPage } from './pages/MachineFilesPage';
 import { useAppStore } from './store/AppStore';
 import { useT } from './hooks/useT';
 import { useAccentColor } from './hooks/useAccentColor';
+import { WEB_RESTRICTION_EVENT } from './lib/webMode';
+import { WelcomeDialog } from './components/WelcomeDialog';
+import { claimWelcomeForSession } from './lib/welcomeSession';
 
 const TrashIcon = ({ style }: { style?: React.CSSProperties }) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style}>
@@ -68,12 +74,14 @@ function MainLayout() {
   const navigate = useNavigate();
   const {
     ready,
+    settings,
+    persistSettings,
     aboutOpen,
     setAboutOpen,
-    transition,
     deleteTarget,
     setDeleteTarget,
     deleteMachine,
+    triggerTransition,
     updateReminder,
     dismissUpdateReminder,
     skipUpdateVersion,
@@ -88,13 +96,37 @@ function MainLayout() {
   const activeStartError = startError;
   const [aboutPageOpen, setAboutPageOpen] = useState(false);
   const [logoClickPosition, setLogoClickPosition] = useState({ x: 0, y: 0 });
+  const [restrictionMessage, setRestrictionMessage] = useState('');
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
 
-  const handleConfirmDelete = async () => {
+  useEffect(() => {
+    if (!ready || !claimWelcomeForSession()) return;
+    if (settings.showWelcomeOnStartup) setWelcomeOpen(true);
+  }, [ready, settings.showWelcomeOnStartup]);
+
+  const handleNeverRemind = async () => {
+    setWelcomeOpen(false);
+    await persistSettings({ ...settings, showWelcomeOnStartup: false });
+  };
+
+  useEffect(() => {
+    const handleRestriction = (event: Event) => {
+      const detail = (event as CustomEvent<{ message?: string }>).detail;
+      setRestrictionMessage(detail?.message || '网页版不能修改此项目。');
+    };
+    window.addEventListener(WEB_RESTRICTION_EVENT, handleRestriction);
+    return () => window.removeEventListener(WEB_RESTRICTION_EVENT, handleRestriction);
+  }, []);
+
+  const handleConfirmDelete = async (event: React.MouseEvent<HTMLButtonElement>) => {
     if (!deleteTarget) return;
     const path = deleteTarget.path;
+    const origin = getElementTransitionOrigin(event.currentTarget);
     setDeleteTarget(null);
-    await deleteMachine(path);
-    navigate('/');
+    triggerTransition('delete', async () => {
+      await deleteMachine(path);
+      navigate('/');
+    }, origin);
   };
 
   const handleLogoClick = (position: { x: number; y: number }) => {
@@ -118,6 +150,7 @@ function MainLayout() {
                 <Route path="/" element={<HomePage />} />
                 <Route path="/machines/new" element={<MachineBuilderPage />} />
                 <Route path="/machines/:machineId" element={<MachineDetailsPage />} />
+                <Route path="/machines/:machineId/files" element={<MachineFilesPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
@@ -129,14 +162,18 @@ function MainLayout() {
       <MobileBottomNav />
       <AboutPage isOpen={aboutPageOpen} onClose={() => setAboutPageOpen(false)} clickPosition={logoClickPosition} />
       <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
+      <WelcomeDialog open={welcomeOpen} onClose={() => setWelcomeOpen(false)} onNeverRemind={() => void handleNeverRemind()} />
+      <Toast
+        message={restrictionMessage}
+        visible={Boolean(restrictionMessage)}
+        onClose={() => setRestrictionMessage('')}
+      />
       <UpdateReminder
         reminder={updateReminder}
         onDismiss={dismissUpdateReminder}
         onSkip={skipUpdateVersion}
         onOpenPage={openUpdatePage}
       />
-      {transition.active && <FullscreenTransition type={transition.type} />}
-
       {deleteModal.mounted && (
         <div className={deleteModal.visible ? 'modal-backdrop modal-backdrop--visible' : 'modal-backdrop'} role="presentation" onClick={() => setDeleteTarget(null)}>
           <div className={deleteModal.visible ? 'modal-card modal-card--visible' : 'modal-card'} role="dialog" aria-modal="true" aria-labelledby="delete-confirm-title" onClick={(event) => event.stopPropagation()}>
@@ -151,7 +188,7 @@ function MainLayout() {
               <button className="button button--secondary" type="button" onClick={() => setDeleteTarget(null)}>
                 {t('app.cancel')}
               </button>
-              <button className="button button--danger" type="button" onClick={() => void handleConfirmDelete()}>
+              <button className="button button--danger" type="button" onClick={(event) => void handleConfirmDelete(event)}>
                 {t('details.deleteMachine')}
               </button>
             </div>
@@ -195,8 +232,16 @@ function RoutedShellWeb() {
   const location = useLocation();
   const isConsole = location.pathname.endsWith('/console');
   const isViewer = location.pathname.startsWith('/viewer/');
+  const { transition } = useAppStore();
 
-  return isConsole ? <ConsoleLayout /> : isViewer ? <VncViewerLayout /> : <MainLayout />;
+  return (
+    <>
+      {isConsole ? <ConsoleLayout /> : isViewer ? <VncViewerLayout /> : <MainLayout />}
+      {transition.active ? (
+        <FullscreenTransition type={transition.type} origin={transition.origin} phase={transition.phase} />
+      ) : null}
+    </>
+  );
 }
 
 export function AppWeb() {

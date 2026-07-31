@@ -101,6 +101,7 @@ function serializeSession(record) {
     updatedAt: record.updatedAt,
     lastError: record.lastError,
     hasPassword: record.hasPassword,
+    historyId: record.historyId,
     activeConnections: record.activeConnections
   };
 }
@@ -127,6 +128,8 @@ class ExternalVncViewerService {
       lastError: null,
       hasPassword: password.length > 0,
       password,
+      rememberPassword: input.rememberPassword === true,
+      historyId: cleanString(input.historyId) || null,
       activeConnections: 0
     };
     this.sessions.set(record.id, record);
@@ -141,6 +144,38 @@ class ExternalVncViewerService {
 
   getSession(sessionId) {
     return serializeSession(this.sessions.get(sessionId) || null);
+  }
+
+  getCredentials(sessionId) {
+    const record = this.sessions.get(sessionId);
+    if (!record) return null;
+    return {
+      password: record.password,
+      rememberPassword: record.rememberPassword
+    };
+  }
+
+  setCredentials(sessionId, input = {}) {
+    const record = this.sessions.get(sessionId);
+    if (!record) return { ok: false, error: 'VNC viewer session not found.' };
+    const password = cleanString(input.password);
+    record.password = password;
+    record.hasPassword = password.length > 0;
+    record.rememberPassword = input.rememberPassword === true;
+    record.updatedAt = makeTimestamp();
+    return { ok: true, hasPassword: record.hasPassword, rememberPassword: record.rememberPassword };
+  }
+
+  clearCredentials(sessionId) {
+    return this.setCredentials(sessionId, { password: '', rememberPassword: false });
+  }
+
+  attachHistory(sessionId, historyId) {
+    const record = this.sessions.get(sessionId);
+    if (!record) return false;
+    record.historyId = cleanString(historyId) || null;
+    record.updatedAt = makeTimestamp();
+    return true;
   }
 
   closeSession(sessionId) {

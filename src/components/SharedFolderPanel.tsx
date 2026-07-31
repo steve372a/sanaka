@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useT } from '../hooks/useT';
 import { usePresence } from '../hooks/usePresence';
 import type { SharedFolderConfig, SharedFolderEnvironment, RuntimeSharedFolderState } from '../types/electron';
+import { getWebResourceDisplayName, isWebMode, showWebModificationNotice } from '../lib/webMode';
 
 interface SharedFolderPanelProps {
   open: boolean;
@@ -62,6 +63,7 @@ export function SharedFolderPanel({
   onSaved
 }: SharedFolderPanelProps) {
   const t = useT();
+  const webRestricted = isWebMode();
   const { mounted, visible } = usePresence(open, 240);
 
   const [enabled, setEnabled] = useState(machineSharing?.enabled ?? false);
@@ -94,6 +96,10 @@ export function SharedFolderPanel({
   const windowsPath = `\\\\${guestAddress}\\${guestShareName}`;
 
   const handleSelectFolder = async () => {
+    if (webRestricted) {
+      showWebModificationNotice();
+      return;
+    }
     try {
       const result = await window.electronAPI.dialogs.selectFolder();
       if (result?.path) {
@@ -105,6 +111,10 @@ export function SharedFolderPanel({
   };
 
   const handleSave = useCallback(async () => {
+    if (webRestricted) {
+      showWebModificationNotice();
+      return;
+    }
     setError(null);
     setSaving(true);
 
@@ -130,7 +140,7 @@ export function SharedFolderPanel({
     } finally {
       setSaving(false);
     }
-  }, [enabled, hostPath, mode, machinePath, onClose, onSaved, t]);
+  }, [enabled, hostPath, mode, machinePath, onClose, onSaved, t, webRestricted]);
 
   const getStatusDisplay = () => {
     if (!enabled) {
@@ -204,8 +214,15 @@ export function SharedFolderPanel({
               type="checkbox"
               className="custom-checkbox__input"
               checked={enabled}
-              onChange={(e) => setEnabled(e.target.checked)}
-              disabled={!envAvailable}
+              aria-disabled={webRestricted}
+              onClick={(event) => {
+                if (webRestricted) {
+                  event.preventDefault();
+                  showWebModificationNotice();
+                }
+              }}
+              onChange={(e) => { if (!webRestricted) setEnabled(e.target.checked); }}
+              disabled={!webRestricted && !envAvailable}
             />
             <span className="custom-checkbox__box">
               {enabled && <CheckIcon />}
@@ -220,16 +237,20 @@ export function SharedFolderPanel({
                 <div className="shared-folder__path-input">
                   <input
                     type="text"
-                    value={hostPath}
+                    value={webRestricted ? getWebResourceDisplayName(hostPath) : hostPath}
+                    readOnly={webRestricted}
+                    aria-disabled={webRestricted}
+                    onClick={() => { if (webRestricted) showWebModificationNotice(); }}
                     onChange={(e) => setHostPath(e.target.value)}
                     placeholder={t('sharedFolder.selectFolder')}
-                    disabled={!envAvailable}
+                    disabled={!webRestricted && !envAvailable}
                   />
                   <button
                     type="button"
                     className="button button--secondary"
                     onClick={handleSelectFolder}
-                    disabled={!envAvailable}
+                    aria-disabled={webRestricted}
+                    disabled={!webRestricted && !envAvailable}
                   >
                     <FolderIcon />
                     {t('sharedFolder.selectFolder')}
@@ -244,16 +265,18 @@ export function SharedFolderPanel({
                   <button
                     type="button"
                     className={mode === 'readwrite' ? 'shared-folder__mode-btn shared-folder__mode-btn--active' : 'shared-folder__mode-btn'}
-                    onClick={() => setMode('readwrite')}
-                    disabled={!envAvailable}
+                    aria-disabled={webRestricted}
+                    onClick={() => webRestricted ? showWebModificationNotice() : setMode('readwrite')}
+                    disabled={!webRestricted && !envAvailable}
                   >
                     {t('sharedFolder.readwrite')}
                   </button>
                   <button
                     type="button"
                     className={mode === 'readonly' ? 'shared-folder__mode-btn shared-folder__mode-btn--active' : 'shared-folder__mode-btn'}
-                    onClick={() => setMode('readonly')}
-                    disabled={!envAvailable}
+                    aria-disabled={webRestricted}
+                    onClick={() => webRestricted ? showWebModificationNotice() : setMode('readonly')}
+                    disabled={!webRestricted && !envAvailable}
                   >
                     {t('sharedFolder.readonly')}
                   </button>
@@ -314,7 +337,8 @@ export function SharedFolderPanel({
               type="button"
               className="button button--primary"
               onClick={handleSave}
-              disabled={saving || !envAvailable}
+              aria-disabled={webRestricted}
+              disabled={saving || (!webRestricted && !envAvailable)}
             >
               {saving ? t('app.save') : t('sharedFolder.save')}
             </button>

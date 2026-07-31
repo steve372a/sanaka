@@ -1,4 +1,5 @@
 import fsPromises from 'fs/promises';
+import path from 'path';
 import { describe, expect, it, vi } from 'vitest';
 import { RuntimeManager, pickPreferredStartupError } from './RuntimeManager';
 
@@ -324,6 +325,66 @@ arch = "i386"
       { id: 'custom:1:0', raw: '-serial', isCustom: true, editable: false, customIndex: 1 },
       { id: 'custom:1:1', raw: 'stdio', isCustom: true, editable: false, customIndex: 1 }
     ]);
+  });
+
+  it('can build a web-safe command preview without invoking the host path proxy', async () => {
+    const build = vi.fn(() => ({
+      binaryPath: '/usr/bin/qemu-system-x86_64',
+      args: ['-drive', 'file=Disks/system.qcow2,format=qcow2'],
+      accelerator: 'tcg',
+      display: { frontend: 'sanaka', backend: 'vnc', port: 5901, websocketPort: 5700 }
+    }));
+    const pathProxyService = {
+      resolveMachinePaths: vi.fn(async ({ machine }) => ({ machine })),
+      resolveLaunchPath: vi.fn()
+    };
+    const { manager } = createManager({ builder: { build }, pathProxyService, platform: 'win32' });
+    const machine = {
+      id: 'vm-web-preview',
+      title: 'Web Preview',
+      system: { arch: 'x86_64', machine_type: 'pc', accelerator: 'tcg', boot_order: 'disk', memory_mib: 2048, cpu_cores: 2, sound_card: 'none', uefi: false },
+      media: { iso: '', floppy: '' },
+      disks: [{ id: 'disk-1', path: 'Disks/system.qcow2', storage_mode: 'managed', interface: 'virtio', boot: true }],
+      network: { enabled: false, mode: 'user', card: 'rtl8139' },
+      display: { frontend: 'sanaka', gpu: 'std', sanaka: { backend: 'vnc', scale_mode: 'fit', clipboard: true } },
+      peripherals: { usb_tablet: true },
+      advanced: { audio_backend: 'auto', qemu_args: '' }
+    };
+
+    await manager.getFullQemuCommand(machine, { resolvePaths: false });
+
+    expect(pathProxyService.resolveMachinePaths).not.toHaveBeenCalled();
+    expect(build).toHaveBeenCalledWith(expect.objectContaining({ machine }));
+  });
+
+  it('keeps untrusted machine ids inside the runtime preview directory', async () => {
+    const build = vi.fn(() => ({
+      binaryPath: '/usr/bin/qemu-system-x86_64',
+      args: [],
+      accelerator: 'tcg',
+      display: { frontend: 'sanaka', backend: 'vnc', port: 5901, websocketPort: 5700 }
+    }));
+    const { manager } = createManager({ builder: { build } });
+    const mkdir = vi.spyOn(fsPromises, 'mkdir').mockResolvedValue(undefined);
+    const machine = {
+      id: '../../../../outside',
+      system: { arch: 'x86_64' },
+      media: { iso: '', floppy: '' },
+      disks: [],
+      network: { enabled: false },
+      display: { frontend: 'sanaka', gpu: 'std', sanaka: { backend: 'vnc' } },
+      peripherals: {},
+      advanced: { qemu_args: '' }
+    };
+
+    await manager.getFullQemuCommand(machine, { resolvePaths: false });
+
+    const runtimeRoot = path.join('/tmp/sanaka', 'runtime-preview');
+    const createdPath = mkdir.mock.calls[0][0];
+    const relative = path.relative(runtimeRoot, createdPath);
+    expect(relative).toMatch(/^machine-[a-f0-9]{16}$/);
+    expect(relative.startsWith('..')).toBe(false);
+    mkdir.mockRestore();
   });
 
   it('proxies machine file paths before building the preview command on Windows', async () => {

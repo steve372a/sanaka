@@ -50,6 +50,9 @@ function buildDefaultFileName(name, format) {
   if (!normalizedName) {
     throw new Error('Disk image name is required.');
   }
+  if (normalizedName.includes('/') || normalizedName.includes('\\') || normalizedName === '.' || normalizedName === '..') {
+    throw new Error('Disk image name must be a file name.');
+  }
   const ext = format === 'raw' ? 'img' : format;
   return normalizedName.toLowerCase().endsWith(`.${ext}`) ? normalizedName : `${normalizedName}.${ext}`;
 }

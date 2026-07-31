@@ -6,6 +6,7 @@ import { AppHeader } from './components/AppHeader';
 import { UpdateReminder } from './components/UpdateReminder';
 import { FullscreenTransition } from './components/FullscreenTransition';
 import { usePresence } from './hooks/usePresence';
+import { getElementTransitionOrigin } from './lib/fullscreenTransition';
 import { machineRoute } from './lib/routes';
 import { HomePage } from './pages/HomePage';
 import { MachineBuilderPage } from './pages/MachineBuilderPage';
@@ -16,6 +17,8 @@ import { VncViewerPage } from './pages/VncViewerPage';
 import { useAppStore } from './store/AppStore';
 import { useT } from './hooks/useT';
 import { useAccentColor } from './hooks/useAccentColor';
+import { WelcomeDialog } from './components/WelcomeDialog';
+import { claimWelcomeForSession } from './lib/welcomeSession';
 
 const TrashIcon = ({ style }: { style?: React.CSSProperties }) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style}>
@@ -67,11 +70,12 @@ function MainLayout() {
   const navigate = useNavigate();
   const {
     ready,
+    settings,
+    persistSettings,
     aboutOpen,
     setAboutOpen,
     openAboutDialog,
     openSakaByPath,
-    transition,
     deleteTarget,
     setDeleteTarget,
     deleteMachine,
@@ -86,6 +90,17 @@ function MainLayout() {
   const deleteModal = usePresence(Boolean(deleteTarget));
   const [aboutPageOpen, setAboutPageOpen] = useState(false);
   const [logoClickPosition, setLogoClickPosition] = useState({ x: 0, y: 0 });
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
+
+  useEffect(() => {
+    if (!ready || !claimWelcomeForSession()) return;
+    if (settings.showWelcomeOnStartup) setWelcomeOpen(true);
+  }, [ready, settings.showWelcomeOnStartup]);
+
+  const handleNeverRemind = async () => {
+    setWelcomeOpen(false);
+    await persistSettings({ ...settings, showWelcomeOnStartup: false });
+  };
 
   useEffect(() => {
     const handleOpenSakaPath = async (path: string) => {
@@ -112,14 +127,15 @@ function MainLayout() {
     };
   }, [navigate, openAboutDialog, openSakaByPath, setAboutOpen]);
 
-  const handleConfirmDelete = async () => {
+  const handleConfirmDelete = async (event: React.MouseEvent<HTMLButtonElement>) => {
     if (!deleteTarget) return;
     const path = deleteTarget.path;
+    const origin = getElementTransitionOrigin(event.currentTarget);
     setDeleteTarget(null);
     triggerTransition('delete', async () => {
       await deleteMachine(path);
       navigate('/');
-    });
+    }, origin);
   };
 
   const handleLogoClick = (position: { x: number; y: number }) => {
@@ -156,14 +172,13 @@ function MainLayout() {
       </div>
       <AboutPage isOpen={aboutPageOpen} onClose={handleAboutPageClose} clickPosition={logoClickPosition} />
       <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
+      <WelcomeDialog open={welcomeOpen} onClose={() => setWelcomeOpen(false)} onNeverRemind={() => void handleNeverRemind()} />
       <UpdateReminder
         reminder={updateReminder}
         onDismiss={dismissUpdateReminder}
         onSkip={skipUpdateVersion}
         onOpenPage={openUpdatePage}
       />
-      {transition.active && <FullscreenTransition type={transition.type} />}
-
       {deleteModal.mounted && (
         <div className={deleteModal.visible ? 'modal-backdrop modal-backdrop--visible' : 'modal-backdrop'} role="presentation" onClick={() => setDeleteTarget(null)}>
           <div className={deleteModal.visible ? 'modal-card modal-card--visible' : 'modal-card'} role="dialog" aria-modal="true" aria-labelledby="delete-confirm-title" onClick={(event) => event.stopPropagation()}>
@@ -193,7 +208,7 @@ export function RoutedShell() {
   const location = useLocation();
   const isConsole = location.pathname.endsWith('/console');
   const isViewer = location.pathname.startsWith('/viewer/');
-  const { startError, setStartError } = useAppStore();
+  const { startError, setStartError, transition } = useAppStore();
   const t = useT();
   const startErrorModal = usePresence(Boolean(startError));
   const activeStartError = startError;
@@ -201,6 +216,9 @@ export function RoutedShell() {
   return (
     <>
       {isConsole ? <ConsoleLayout /> : isViewer ? <VncViewerLayout /> : <MainLayout />}
+      {transition.active ? (
+        <FullscreenTransition type={transition.type} origin={transition.origin} phase={transition.phase} />
+      ) : null}
       {startErrorModal.mounted && (
         <div className={startErrorModal.visible ? 'modal-backdrop modal-backdrop--visible' : 'modal-backdrop'} role="presentation" onClick={() => setStartError(null)}>
           <div className={startErrorModal.visible ? 'modal-card modal-card--visible' : 'modal-card'} role="dialog" aria-modal="true" aria-labelledby="start-error-title" onClick={(event) => event.stopPropagation()}>

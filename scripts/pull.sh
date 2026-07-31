@@ -16,10 +16,13 @@ Usage:
   bash scripts/pull.sh <branch>
 
 Behavior:
+  - Save the current HEAD to refs/sanaka-backups/pull/...
+  - Stash tracked and untracked work before replacing the branch
   - Fetch origin
   - Switch to the target branch
   - If the local branch is missing, create it from origin/<branch>
   - Hard reset the local branch to origin/<branch>
+  - Keep the backup stash instead of applying it automatically
 EOF
 }
 
@@ -71,6 +74,26 @@ retry_sync_after_fix() {
 }
 
 run_sync_once() {
+  local timestamp backup_ref stash_before stash_after
+  timestamp="$(date '+%Y%m%d-%H%M%S')"
+  backup_ref="refs/sanaka-backups/pull/${TARGET_BRANCH}/${timestamp}"
+  git update-ref "$backup_ref" HEAD
+  echo "已备份当前提交: $backup_ref"
+
+  if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
+    stash_before="$(git rev-parse -q --verify refs/stash 2>/dev/null || true)"
+    git stash push --include-untracked -m "sanaka pull backup ${TARGET_BRANCH} ${timestamp}"
+    stash_after="$(git rev-parse -q --verify refs/stash 2>/dev/null || true)"
+    if [[ -z "$stash_after" || "$stash_after" == "$stash_before" ]]; then
+      echo "错误：工作区备份失败，已停止拉取。" >&2
+      return 1
+    fi
+    echo "已备份工作区: $stash_after"
+    echo "恢复工作区命令: git stash apply $stash_after"
+  else
+    echo "工作区没有未提交改动。"
+  fi
+
   git fetch origin
 
   if ! git show-ref --verify --quiet "refs/remotes/origin/${TARGET_BRANCH}"; then

@@ -69,6 +69,9 @@ function mockElectronApi() {
     },
     runtime: {
       detectQemu: vi.fn(async () => runtimeEnvironment),
+      scanQemuDirectories: vi.fn(async () => ({ candidates: [], roots: [], scannedDirectories: 0, skippedDirectories: 0, elapsedMs: 0, cancelled: false, truncated: false })),
+      cancelQemuDirectoryScan: vi.fn(async () => ({ ok: true as const, cancelled: false })),
+      validateQemuDirectory: vi.fn(async () => ({ ok: false })),
       getRuntimeEnvironment: vi.fn(async () => runtimeEnvironment),
       previewMachineCommand: vi.fn(async () => ({
         machineId: 'machine-1',
@@ -155,6 +158,23 @@ describe('SettingsPage', () => {
     renderSettings('/settings?tab=templates');
 
     expect(await screen.findByRole('button', { name: /^模板/ })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('persists reduced motion from general settings', async () => {
+    const user = userEvent.setup();
+    renderSettings('/settings?tab=general');
+
+    const toggle = await screen.findByRole('checkbox', { name: '减弱动态效果' });
+    expect(toggle).not.toBeChecked();
+    expect(screen.queryByRole('button', { name: '减弱动态效果' })).not.toBeInTheDocument();
+
+    await user.click(toggle);
+
+    expect(toggle).toBeChecked();
+    expect(document.documentElement).toHaveAttribute('data-reduced-motion', 'true');
+    expect(window.electronAPI.settings.save).toHaveBeenCalledWith(
+      expect.objectContaining({ reduceMotion: true })
+    );
   });
 
   it('shows the real default machine directory from the app metadata', async () => {

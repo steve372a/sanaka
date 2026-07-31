@@ -104,6 +104,20 @@ describe('DiskImageService', () => {
     );
   });
 
+  it('rejects disk image names that can escape the selected directory', async () => {
+    const result = await service.create({
+      name: '../escape',
+      directory: '/images',
+      size: 1,
+      unit: 'GB',
+      format: 'qcow2'
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('must be a file name');
+    expect(execFileImpl).not.toHaveBeenCalled();
+  });
+
   it('resizes an image and returns updated info', async () => {
     execFileImpl
       .mockResolvedValueOnce({ stdout: '', stderr: '' })

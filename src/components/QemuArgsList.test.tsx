@@ -121,7 +121,8 @@ const translations: Record<string, string> = {
   'builder.actions.add': 'Add',
   'builder.actions.removeArg': 'Remove argument',
   'builder.descriptions.advanced': 'Advanced QEMU arguments',
-  'builder.errors.invalidArgValue': 'Invalid argument value'
+  'builder.errors.invalidArgValue': 'Invalid argument value',
+  'builder.errors.webCustomArgsLocked': 'Web mode cannot modify custom QEMU arguments. Use the desktop app.'
 };
 
 describe('QemuArgsList', () => {
@@ -226,5 +227,28 @@ describe('QemuArgsList', () => {
         bindingKey: 'system.sound_card'
       });
     });
+  });
+
+  it('keeps the add control visible but blocks custom arguments in web mode', async () => {
+    const user = userEvent.setup();
+    window.sanakaWebAPI = { isWebMode: true } as Window['sanakaWebAPI'];
+    window.electronAPI = {
+      runtime: {
+        getFullQemuCommand: vi.fn(async (machine: SakaMachine) => buildFullCommand(machine))
+      }
+    } as unknown as Window['electronAPI'];
+    const restriction = vi.fn();
+    window.addEventListener('sanaka:web-restriction', restriction);
+
+    render(<QemuArgsList machine={createMachine()} onChange={vi.fn()} t={(key) => translations[key] || key} />);
+    const add = screen.getByRole('button', { name: 'Add custom argument' });
+    expect(add).toHaveAttribute('aria-disabled', 'true');
+    await user.click(add);
+
+    expect(restriction).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('textbox', { name: 'Add custom argument' })).not.toBeInTheDocument();
+
+    window.removeEventListener('sanaka:web-restriction', restriction);
+    window.sanakaWebAPI = undefined;
   });
 });

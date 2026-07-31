@@ -1,11 +1,13 @@
 const fs = require('fs/promises');
+const fsSync = require('fs');
 const http = require('http');
 const net = require('net');
 const os = require('os');
 const path = require('path');
-const { fileURLToPath } = require('url');
+const { randomUUID } = require('crypto');
 const WebSocket = require('ws');
 const { webModeApiSpec, transformWebModeArgs } = require('./webModeApi');
+const { redactHostPaths } = require('./WebResponseSanitizer');
 
 const MIME_TYPES = {
   '.css': 'text/css; charset=utf-8',
@@ -18,7 +20,8 @@ const MIME_TYPES = {
   '.webp': 'image/webp',
   '.svg': 'image/svg+xml; charset=utf-8',
   '.ttf': 'font/ttf',
-  '.ico': 'image/x-icon'
+  '.ico': 'image/x-icon',
+  '.mp4': 'video/mp4'
 };
 
 function escapeHtml(value) {
@@ -37,13 +40,13 @@ function normalizeError(error) {
 
   if (error instanceof Error) {
     return {
-      message: error.message || 'Unknown error.',
+      message: redactHostPaths(error.message) || 'Unknown error.',
       code: error.code
     };
   }
 
   if (typeof error === 'string') {
-    return { message: error };
+    return { message: redactHostPaths(error) };
   }
 
   return {
@@ -61,6 +64,9 @@ class WebModeService {
     this.getRuntimeManager = options.getRuntimeManager || (() => null);
     this.getRuntimeSummary = options.getRuntimeSummary || (async () => ({}));
     this.invokeHandlers = options.invokeHandlers || {};
+    this.webWorkspaceService = options.webWorkspaceService || null;
+    this.webExportService = options.webExportService || null;
+    this.getWelcomeVideoPath = options.getWelcomeVideoPath || null;
     this.server = null;
     this.wsServer = null;
     this.startedAt = null;
@@ -196,13 +202,44 @@ class WebModeService {
       return;
     }
 
+    if (url.pathname === '/api/workspace/files' && request.method === 'GET') {
+      await this.#listWorkspaceFiles(url, response);
+      return;
+    }
+
+    if (url.pathname === '/api/workspace/upload' && request.method === 'POST') {
+      await this.#uploadWorkspaceFile(request, url, response);
+      return;
+    }
+
+    if (url.pathname === '/api/workspace/download' && request.method === 'GET') {
+      await this.#downloadWorkspaceFile(url, response);
+      return;
+    }
+
+    if (url.pathname === '/api/workspace/preview' && request.method === 'GET') {
+      await this.#serveWorkspacePreview(url, response);
+      return;
+    }
+
+    if (url.pathname.startsWith('/api/workspace/exports/') && request.method === 'GET') {
+      await this.#downloadWebExport(url, response);
+      return;
+    }
+
     if (url.pathname === '/api/file') {
-      await this.#serveLocalFile(url, response);
+      response.writeHead(410, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+      response.end('Host file access is unavailable in web mode.');
       return;
     }
 
     if (url.pathname === '/api/audio') {
       await this.#serveAudioStream(url, response);
+      return;
+    }
+
+    if (url.pathname.startsWith('/video/')) {
+      await this.#serveWelcomeVideo(request, url, response);
       return;
     }
 
@@ -222,7 +259,7 @@ class WebModeService {
     const url = new URL(request.url || '/', `http://${this.host}:${this.boundPort || this.port || 80}`);
     if (url.pathname === '/api/novnc') {
       const port = Number.parseInt(url.searchParams.get('port') || '', 10);
-      if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+      if (!Number.isInteger(port) || port <= 0 || port > 65535 || !(await this.#isAllowedDisplayWebSocketPort(port))) {
         socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
         socket.destroy();
         return;
@@ -285,6 +322,21 @@ class WebModeService {
 
     socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
     socket.destroy();
+  }
+
+  async #isAllowedDisplayWebSocketPort(port) {
+    try {
+      const runtimeManager = this.getRuntimeManager();
+      if (!runtimeManager || typeof runtimeManager.listRunningMachines !== 'function') return false;
+      const machines = await runtimeManager.listRunningMachines();
+      return machines.some((machine) => (
+        machine?.displayBackend === 'vnc'
+        && machine?.displayWebSocketPort === port
+        && (machine.status === 'starting' || machine.status === 'running')
+      ));
+    } catch {
+      return false;
+    }
   }
 
   #handleEvents(response) {
@@ -365,28 +417,216 @@ class WebModeService {
     }
   }
 
-  async #serveLocalFile(url, response) {
-    const fileUrl = url.searchParams.get('url');
-    const rawPath = url.searchParams.get('path');
-    const filePath = this.#resolveLocalFilePath(fileUrl, rawPath);
-    if (!filePath) {
-      response.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
-      response.end('Missing file path.');
+  async #serveWelcomeVideo(request, url, response) {
+    const expectedName = `${this.appVersion}.mp4`;
+    let requestedName = '';
+    try {
+      requestedName = path.basename(decodeURIComponent(url.pathname.slice('/video/'.length)));
+    } catch {
+      requestedName = '';
+    }
+    if (requestedName !== expectedName || typeof this.getWelcomeVideoPath !== 'function') {
+      response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      response.end('Not found');
       return;
     }
 
     try {
-      const content = await fs.readFile(filePath);
-      const ext = path.extname(filePath).toLowerCase();
-      response.writeHead(200, {
-        'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
-        'Cache-Control': 'no-store'
-      });
-      response.end(content);
+      const filePath = await this.getWelcomeVideoPath();
+      const stats = await fs.stat(filePath);
+      if (!stats.isFile() || stats.size <= 0) throw new Error('missing');
+      const commonHeaders = {
+        'Content-Type': 'video/mp4',
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'public, max-age=31536000, immutable'
+      };
+      const range = request.headers.range;
+      if (range) {
+        const match = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
+        if (!match || (!match[1] && !match[2])) {
+          response.writeHead(416, { ...commonHeaders, 'Content-Range': `bytes */${stats.size}` });
+          response.end();
+          return;
+        }
+        let start;
+        let end;
+        if (!match[1]) {
+          const suffixLength = Number.parseInt(match[2], 10);
+          start = Math.max(0, stats.size - suffixLength);
+          end = stats.size - 1;
+        } else {
+          start = Number.parseInt(match[1], 10);
+          end = match[2] ? Number.parseInt(match[2], 10) : stats.size - 1;
+        }
+        if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || start >= stats.size) {
+          response.writeHead(416, { ...commonHeaders, 'Content-Range': `bytes */${stats.size}` });
+          response.end();
+          return;
+        }
+        end = Math.min(end, stats.size - 1);
+        response.writeHead(206, {
+          ...commonHeaders,
+          'Content-Length': end - start + 1,
+          'Content-Range': `bytes ${start}-${end}/${stats.size}`
+        });
+        fsSync.createReadStream(filePath, { start, end }).pipe(response);
+        return;
+      }
+      response.writeHead(200, { ...commonHeaders, 'Content-Length': stats.size });
+      fsSync.createReadStream(filePath).pipe(response);
     } catch {
       response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
       response.end('Not found');
     }
+  }
+
+  async #listWorkspaceFiles(url, response) {
+    if (!this.webWorkspaceService) {
+      this.#writeJson(response, 503, { ok: false, error: { message: 'The web workspace is unavailable.' } });
+      return;
+    }
+    try {
+      const result = await this.webWorkspaceService.listFiles(
+        url.searchParams.get('machine') || '',
+        url.searchParams.get('directory') || ''
+      );
+      this.#writeJson(response, 200, { ok: true, result });
+    } catch (error) {
+      this.#writeJson(response, 403, { ok: false, error: normalizeError(error) });
+    }
+  }
+
+  async #uploadWorkspaceFile(request, url, response) {
+    if (!this.webWorkspaceService) {
+      this.#writeJson(response, 503, { ok: false, error: { message: 'The web workspace is unavailable.' } });
+      return;
+    }
+
+    let partPath = null;
+    let fileHandle = null;
+    try {
+      const contentLength = Number.parseInt(request.headers['content-length'] || '0', 10);
+      if (Number.isFinite(contentLength) && contentLength > this.webWorkspaceService.maxUploadBytes) {
+        this.#writeJson(response, 413, { ok: false, error: { message: 'The uploaded file is too large.' } });
+        return;
+      }
+      const target = await this.webWorkspaceService.resolveUploadTarget(
+        url.searchParams.get('machine') || '',
+        url.searchParams.get('directory') || '',
+        url.searchParams.get('name') || ''
+      );
+      const targetExists = await fs.stat(target.targetPath).then(() => true).catch((error) => {
+        if (error?.code === 'ENOENT') return false;
+        throw error;
+      });
+      if (targetExists) {
+        this.#writeJson(response, 409, { ok: false, error: { message: 'A file with this name already exists.' } });
+        return;
+      }
+
+      partPath = `${target.targetPath}.part-${randomUUID()}`;
+      fileHandle = await fs.open(partPath, 'wx');
+      let totalBytes = 0;
+      for await (const chunk of request) {
+        totalBytes += chunk.length;
+        if (totalBytes > this.webWorkspaceService.maxUploadBytes) {
+          throw Object.assign(new Error('The uploaded file is too large.'), { code: 'UPLOAD_TOO_LARGE' });
+        }
+        await fileHandle.write(chunk);
+      }
+      await fileHandle.sync();
+      await fileHandle.close();
+      fileHandle = null;
+      await fs.rename(partPath, target.targetPath);
+      partPath = null;
+      this.#writeJson(response, 201, {
+        ok: true,
+        result: { path: target.relativePath, name: target.fileName, size: totalBytes }
+      });
+    } catch (error) {
+      if (fileHandle) await fileHandle.close().catch(() => null);
+      if (partPath) await fs.rm(partPath, { force: true }).catch(() => null);
+      this.#writeJson(response, error?.code === 'UPLOAD_TOO_LARGE' ? 413 : 403, { ok: false, error: normalizeError(error) });
+    }
+  }
+
+  async #downloadWorkspaceFile(url, response) {
+    if (!this.webWorkspaceService) {
+      response.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
+      response.end('The web workspace is unavailable.');
+      return;
+    }
+    try {
+      const filePath = await this.webWorkspaceService.resolveSandboxPath(
+        url.searchParams.get('machine') || '',
+        url.searchParams.get('path') || '',
+        { mustExist: true }
+      );
+      const stats = await fs.stat(filePath);
+      if (!stats.isFile()) {
+        response.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+        response.end('The requested path is not a file.');
+        return;
+      }
+      const fileName = path.basename(filePath).replace(/["\r\n]/g, '_');
+      response.writeHead(200, {
+        'Content-Type': MIME_TYPES[path.extname(filePath).toLowerCase()] || 'application/octet-stream',
+        'Content-Length': stats.size,
+        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+        'Cache-Control': 'no-store'
+      });
+      fsSync.createReadStream(filePath).pipe(response);
+    } catch (error) {
+      response.writeHead(error?.code === 'ENOENT' ? 404 : 403, { 'Content-Type': 'text/plain; charset=utf-8' });
+      response.end(error?.message || 'The requested file is unavailable.');
+    }
+  }
+
+  async #serveWorkspacePreview(url, response) {
+    if (!this.webWorkspaceService) {
+      response.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
+      response.end('The web workspace is unavailable.');
+      return;
+    }
+    try {
+      const previewPath = await this.webWorkspaceService.resolvePreviewPath(url.searchParams.get('machine') || '');
+      const stats = await fs.stat(previewPath);
+      response.writeHead(200, {
+        'Content-Type': 'image/png',
+        'Content-Length': stats.size,
+        'Cache-Control': 'no-store'
+      });
+      fsSync.createReadStream(previewPath).pipe(response);
+    } catch {
+      response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      response.end('Preview not found.');
+    }
+  }
+
+  async #downloadWebExport(url, response) {
+    if (!this.webExportService) {
+      response.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
+      response.end('Web export is unavailable.');
+      return;
+    }
+    const token = decodeURIComponent(url.pathname.slice('/api/workspace/exports/'.length));
+    const download = await this.webExportService.resolveDownload(token);
+    if (!download) {
+      response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+      response.end('This export download is unavailable or has expired.');
+      return;
+    }
+    const fileName = download.name.replace(/["\r\n]/g, '_');
+    response.writeHead(200, {
+      'Content-Type': 'application/zip',
+      'Content-Length': download.size,
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+      'Cache-Control': 'no-store'
+    });
+    fsSync.createReadStream(download.path).pipe(response);
+    response.on('finish', () => {
+      void this.webExportService.consumeDownload(token);
+    });
   }
 
   async #serveAudioStream(url, response) {
@@ -617,26 +857,6 @@ class WebModeService {
     });
   }
 
-  #resolveLocalFilePath(fileUrl, rawPath) {
-    if (fileUrl) {
-      try {
-        return fileURLToPath(fileUrl);
-      } catch {
-        return null;
-      }
-    }
-
-    if (!rawPath) {
-      return null;
-    }
-
-    if (/^\/[A-Za-z]:\//.test(rawPath)) {
-      return rawPath.slice(1);
-    }
-
-    return rawPath;
-  }
-
   async #buildStatusPayload() {
     const runtimeSummary = await this.getRuntimeSummary().catch(() => ({}));
     return {
@@ -667,21 +887,8 @@ class WebModeService {
     return `
 (() => {
   const contract = ${contractJson};
-  const originalUrlCtor = window.URL;
   let sharedEventSource = null;
   const eventListeners = new Map();
-
-  function rewriteFileUrl(input) {
-    if (typeof input !== 'string') {
-      return input;
-    }
-
-    if (input.startsWith('file://')) {
-      return window.location.origin + '/api/file?url=' + encodeURIComponent(input);
-    }
-
-    return input;
-  }
 
   function rewriteWebSocketUrl(input) {
     if (typeof input !== 'string') {
@@ -697,21 +904,6 @@ class WebModeService {
     return input;
   }
 
-  class BrowserURL extends originalUrlCtor {
-    constructor(input, base) {
-      super(rewriteFileUrl(input), base);
-    }
-
-    static createObjectURL(object) {
-      return originalUrlCtor.createObjectURL(object);
-    }
-
-    static revokeObjectURL(url) {
-      return originalUrlCtor.revokeObjectURL(url);
-    }
-  }
-
-  window.URL = BrowserURL;
   const OriginalWebSocket = window.WebSocket;
   function BrowserWebSocket(url, protocols) {
     return new OriginalWebSocket(rewriteWebSocketUrl(url), protocols);
@@ -719,20 +911,6 @@ class WebModeService {
   BrowserWebSocket.prototype = OriginalWebSocket.prototype;
   Object.setPrototypeOf(BrowserWebSocket, OriginalWebSocket);
   window.WebSocket = BrowserWebSocket;
-
-  const imageSrcDescriptor = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
-  if (imageSrcDescriptor?.set && imageSrcDescriptor?.get) {
-    Object.defineProperty(HTMLImageElement.prototype, 'src', {
-      configurable: true,
-      enumerable: imageSrcDescriptor.enumerable,
-      get() {
-        return imageSrcDescriptor.get.call(this);
-      },
-      set(value) {
-        return imageSrcDescriptor.set.call(this, rewriteFileUrl(value));
-      }
-    });
-  }
 
   function on(channel, handler) {
     if (typeof handler !== 'function') {
@@ -817,6 +995,48 @@ class WebModeService {
   }
 
   window.electronAPI = bindNode(contract);
+  window.sanakaWebAPI = {
+    isWebMode: true,
+    files: {
+      async list(machineRef, directory = '') {
+        const query = new URLSearchParams({ machine: machineRef, directory });
+        const response = await fetch('./api/workspace/files?' + query.toString(), { cache: 'no-store' });
+        const payload = await response.json().catch(() => ({ ok: false, error: { message: 'Invalid file list response.' } }));
+        if (!response.ok || !payload.ok) {
+          throw new Error(payload?.error?.message || 'Could not list machine files.');
+        }
+        return payload.result;
+      },
+      upload(machineRef, directory, file, onProgress) {
+        return new Promise((resolve, reject) => {
+          const query = new URLSearchParams({ machine: machineRef, directory, name: file.name });
+          const request = new XMLHttpRequest();
+          request.open('POST', './api/workspace/upload?' + query.toString());
+          request.setRequestHeader('Content-Type', 'application/octet-stream');
+          request.upload.addEventListener('progress', (event) => {
+            if (typeof onProgress === 'function' && event.lengthComputable) {
+              onProgress(Math.round((event.loaded / Math.max(event.total, 1)) * 100));
+            }
+          });
+          request.addEventListener('load', () => {
+            let payload = null;
+            try { payload = JSON.parse(request.responseText); } catch { /* handled below */ }
+            if (request.status < 200 || request.status >= 300 || !payload?.ok) {
+              reject(new Error(payload?.error?.message || 'Could not upload the file.'));
+              return;
+            }
+            resolve(payload.result);
+          });
+          request.addEventListener('error', () => reject(new Error('Could not upload the file.')));
+          request.send(file);
+        });
+      },
+      downloadUrl(machineRef, relativePath) {
+        const query = new URLSearchParams({ machine: machineRef, path: relativePath });
+        return window.location.origin + '/api/workspace/download?' + query.toString();
+      }
+    }
+  };
   window.addEventListener('error', (event) => {
     console.error('[web-mode error]', event.error || event.message || event);
   });
@@ -851,9 +1071,14 @@ class WebModeService {
     return handlers;
   }
 
-  async #readRequestBody(request) {
+  async #readRequestBody(request, maxBytes = 1024 * 1024) {
     const chunks = [];
+    let totalBytes = 0;
     for await (const chunk of request) {
+      totalBytes += chunk.length;
+      if (totalBytes > maxBytes) {
+        throw Object.assign(new Error('The RPC request is too large.'), { code: 'REQUEST_TOO_LARGE' });
+      }
       chunks.push(chunk);
     }
     return Buffer.concat(chunks).toString('utf8');

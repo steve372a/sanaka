@@ -1,17 +1,29 @@
-const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, nativeImage, screen, shell } = require('electron');
+const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, nativeImage, safeStorage, screen, shell } = require('electron');
 const fs = require('fs/promises');
 const path = require('path');
+const { pathToFileURL } = require('node:url');
 const { parse: parseToml, stringify: stringifyToml } = require('smol-toml');
 const { DiskImageService } = require('./runtime/DiskImageService');
 const { ExportService } = require('./runtime/ExportService');
 const { RuntimeManager } = require('./runtime/RuntimeManager');
 const { UpdateService } = require('./runtime/UpdateService');
 const { WebModeService } = require('./runtime/WebModeService');
+const { WebWorkspaceService } = require('./runtime/WebWorkspaceService');
+const { WebExportService } = require('./runtime/WebExportService');
+const {
+  redactHostPaths,
+  sanitizeFullQemuCommand,
+  sanitizeQemuEnvironment,
+  sanitizeSharedFolderEnvironment
+} = require('./runtime/WebResponseSanitizer');
 const { ExternalVncViewerService } = require('./runtime/ExternalVncViewerService');
+const { ExternalVncHistoryStore } = require('./runtime/ExternalVncHistoryStore');
+const { WelcomeVideoService } = require('./runtime/WelcomeVideoService');
 const { applyControlledEdit, buildArgList, normalizeCustomArgs, removeControlledArg } = require('./runtime/QemuArgsSync');
 
 const SETTINGS_FILE = 'settings.json';
 const RECENTS_FILE = 'recents.json';
+const VNC_HISTORY_FILE = 'vnc-history.json';
 const MAX_RECENTS = 12;
 const MACHINE_CONFIG_FILE = 'machine.svm';
 const MACHINE_PREVIEW_FILE = 'preview.png';
@@ -36,7 +48,11 @@ let diskImageService = null;
 let exportService = null;
 let updateService = null;
 let webModeService = null;
+let webWorkspaceService = null;
+let webExportService = null;
 let externalVncViewerService = null;
+let externalVncHistoryStore = null;
+let welcomeVideoService = null;
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
 if (!gotSingleInstanceLock) {
@@ -80,7 +96,12 @@ function emitToRenderer(channel, payload) {
     mainWindow.webContents.send(channel, payload);
   }
   if (webModeService) {
-    webModeService.emit(channel, payload);
+    const webPayload = channel === 'runtime:event'
+      ? toWebRuntimeEvent(payload)
+      : channel === 'machine:export-progress'
+        ? toWebExportProgress(payload)
+        : payload;
+    webModeService.emit(channel, webPayload);
   }
 }
 
@@ -116,8 +137,12 @@ function getUpdateService() {
 
 async function readEffectiveSettings() {
   const loaded = await readJsonFile(SETTINGS_FILE, null);
+  const externalDir = typeof loaded?.qemu?.externalDir === 'string' ? loaded.qemu.externalDir.trim() : '';
   return {
     ...(loaded || {}),
+    qemu: {
+      externalDir
+    },
     webMode: {
       port: Number.isInteger(loaded?.webMode?.port) ? loaded.webMode.port : DEFAULT_WEB_MODE_PORT
     }
@@ -138,11 +163,68 @@ function getWebModeService() {
   return webModeService;
 }
 
+function getWebWorkspaceService() {
+  if (!webWorkspaceService) {
+    webWorkspaceService = new WebWorkspaceService();
+  }
+  return webWorkspaceService;
+}
+
+function getWebExportService() {
+  if (!webExportService) {
+    webExportService = new WebExportService({
+      workspace: getWebWorkspaceService(),
+      outputDirectory: getUserDataPath('web-exports'),
+      platform: process.platform,
+      emitProgress: emitExportProgress
+    });
+  }
+  return webExportService;
+}
+
 function getExternalVncViewerService() {
   if (!externalVncViewerService) {
     externalVncViewerService = new ExternalVncViewerService();
   }
   return externalVncViewerService;
+}
+
+function isVncPasswordStorageAvailable() {
+  try {
+    return safeStorage.isEncryptionAvailable();
+  } catch {
+    return false;
+  }
+}
+
+function getExternalVncHistoryStore() {
+  if (!externalVncHistoryStore) {
+    externalVncHistoryStore = new ExternalVncHistoryStore({
+      load: () => readJsonFile(VNC_HISTORY_FILE, { version: 1, items: [] }),
+      save: (payload) => writeJsonFile(VNC_HISTORY_FILE, payload),
+      isPasswordStorageAvailable: isVncPasswordStorageAvailable,
+      encryptPassword: async (password) => isVncPasswordStorageAvailable()
+        ? safeStorage.encryptString(password).toString('base64')
+        : null,
+      decryptPassword: async (encryptedPassword) => isVncPasswordStorageAvailable()
+        ? safeStorage.decryptString(Buffer.from(encryptedPassword, 'base64'))
+        : null
+    });
+  }
+  return externalVncHistoryStore;
+}
+
+function getWelcomeVideoService() {
+  if (!welcomeVideoService) {
+    welcomeVideoService = new WelcomeVideoService({
+      version: app.getVersion(),
+      repoRoot: __dirname,
+      resourcesPath: process.resourcesPath,
+      userDataPath: app.getPath('userData'),
+      isPackaged: app.isPackaged
+    });
+  }
+  return welcomeVideoService;
 }
 
 function deriveWebSocketUrl(httpUrl, pathname) {
@@ -190,6 +272,8 @@ async function ensureWebModeService() {
       port: configuredPort,
       distDir: path.join(__dirname, 'dist'),
       getRuntimeManager: () => getRuntimeManager(),
+      webWorkspaceService: getWebWorkspaceService(),
+      webExportService: getWebExportService(),
       getExternalVncViewerService: () => getExternalVncViewerService(),
       getRuntimeSummary: async () => {
         const environment = await getRuntimeManager().getRuntimeEnvironment().catch(() => null);
@@ -199,6 +283,7 @@ async function ensureWebModeService() {
           runningMachines: Array.isArray(runningMachines) ? runningMachines.length : 0
         };
       },
+      getWelcomeVideoPath: async () => (await getWelcomeVideoService().resolve().catch(() => null))?.path || null,
       invokeHandlers: webInvokeHandlers
     });
   }
@@ -216,6 +301,56 @@ function wrapWebInvoke(handler, mode = 'spread') {
   }
 
   return (...args) => handler(undefined, ...args);
+}
+
+function toWebRuntimeState(state) {
+  if (!state || typeof state !== 'object') return state;
+  const machineRef = state.bundlePath
+    ? getWebWorkspaceService().registerMachinePath(state.bundlePath)
+    : '';
+  return {
+    ...state,
+    bundlePath: machineRef,
+    configPath: machineRef ? `${machineRef}/${MACHINE_CONFIG_FILE}` : '',
+    qmpSocketPath: null,
+    logPath: '',
+    lastError: redactHostPaths(state.lastError),
+    sharedFolder: state.sharedFolder
+      ? { ...state.sharedFolder, hostPath: undefined, warning: redactHostPaths(state.sharedFolder.warning) }
+      : state.sharedFolder,
+    clipboardBridge: state.clipboardBridge
+      ? { ...state.clipboardBridge, configPath: null, lastError: redactHostPaths(state.clipboardBridge.lastError) }
+      : state.clipboardBridge
+  };
+}
+
+function toWebRuntimeResult(result) {
+  if (!result || typeof result !== 'object') return result;
+  return { ...result, state: result.state ? toWebRuntimeState(result.state) : result.state };
+}
+
+function toWebRuntimeEvent(payload) {
+  if (!payload || typeof payload !== 'object') return payload;
+  return {
+    ...payload,
+    state: payload.state ? toWebRuntimeState(payload.state) : payload.state,
+    environment: payload.environment ? sanitizeQemuEnvironment(payload.environment) : payload.environment,
+    candidate: undefined,
+    message: redactHostPaths(payload.message),
+    error: redactHostPaths(payload.error)
+  };
+}
+
+function toWebExportProgress(payload) {
+  if (!payload || typeof payload !== 'object') return payload;
+  const detail = typeof payload.detail === 'string' && payload.detail.startsWith('/api/workspace/exports/')
+    ? payload.detail
+    : redactHostPaths(payload.detail);
+  return {
+    ...payload,
+    detail,
+    error: redactHostPaths(payload.error)
+  };
 }
 
 function normalizeSakaArg(argv) {
@@ -330,6 +465,14 @@ function toBundlePreviewPath(bundlePath) {
 
 function toBundleDisksPath(bundlePath) {
   return path.join(bundlePath, MACHINE_DISKS_DIRECTORY);
+}
+
+function toDisplayDiskCapacity(bytes) {
+  const value = Number(bytes) || 0;
+  if (value >= 1024 ** 3) {
+    return { size: Number((value / (1024 ** 3)).toFixed(2)), unit: 'GB' };
+  }
+  return { size: Number((value / (1024 ** 2)).toFixed(2)), unit: 'MB' };
 }
 
 async function resolveOpenedConfig(filePath) {
@@ -634,6 +777,7 @@ function getRuntimeManager() {
     runtimeManager = new RuntimeManager({
       app,
       emitEvent: emitRuntimeEvent,
+      loadSettings: () => readEffectiveSettings(),
       readClipboardText: () => clipboard.readText(),
       writeClipboardText: (text) => clipboard.writeText(String(text || ''))
     });
@@ -858,7 +1002,16 @@ const ipcHandlers = {
     return readEffectiveSettings();
   },
   async saveSettings(_event, settings) {
-    return writeJsonFile(SETTINGS_FILE, settings);
+    const effective = {
+      ...(settings || {}),
+      qemu: {
+        externalDir: typeof settings?.qemu?.externalDir === 'string' ? settings.qemu.externalDir.trim() : ''
+      },
+      webMode: {
+        port: Number.isInteger(settings?.webMode?.port) ? settings.webMode.port : DEFAULT_WEB_MODE_PORT
+      }
+    };
+    return writeJsonFile(SETTINGS_FILE, effective);
   },
   async listRecents() {
     return readJsonFile(RECENTS_FILE, []);
@@ -902,6 +1055,16 @@ const ipcHandlers = {
       defaultMachineDirectory
     };
   },
+  async getWelcomeVideo() {
+    const service = getWelcomeVideoService();
+    const resolved = await service.resolve().catch(() => null);
+    return {
+      available: Boolean(resolved),
+      url: resolved ? pathToFileURL(resolved.path).href : null,
+      source: resolved?.source || null,
+      version: service.version
+    };
+  },
   async openWebMode() {
     const state = await (await ensureWebModeService()).start();
     const openUrl = state.localUrl || state.url;
@@ -929,6 +1092,15 @@ const ipcHandlers = {
   async detectQemu() {
     return getRuntimeManager().detectQemu();
   },
+  async scanQemuDirectories() {
+    return getRuntimeManager().scanQemuDirectories();
+  },
+  cancelQemuDirectoryScan() {
+    return { ok: true, cancelled: getRuntimeManager().cancelQemuDirectoryScan() };
+  },
+  async validateQemuDirectory(_event, directoryPath) {
+    return getRuntimeManager().validateQemuDirectory(directoryPath);
+  },
   async getUpdaterCurrentInfo() {
     return getUpdateService().getCurrentInfo();
   },
@@ -942,9 +1114,68 @@ const ipcHandlers = {
     return getUpdateService().openUpdatePage(url);
   },
   async createExternalVncSession(_event, request) {
-    const session = getExternalVncViewerService().createSession(request || {});
+    const input = request || {};
+    let sessionInput = input;
+    if (input.historyId) {
+      const history = await getExternalVncHistoryStore().getWithCredential(input.historyId);
+      if (!history) throw new Error('VNC history entry not found.');
+      sessionInput = {
+        host: history.host,
+        port: history.port,
+        historyId: history.id,
+        password: history.password || '',
+        rememberPassword: Boolean(history.password)
+      };
+    }
+    const session = getExternalVncViewerService().createSession(sessionInput);
     const serviceState = await (await ensureWebModeService()).start();
     return decorateExternalVncSession(session, serviceState);
+  },
+  async listExternalVncHistory() {
+    return getExternalVncHistoryStore().list();
+  },
+  async removeExternalVncHistory(_event, historyId) {
+    return getExternalVncHistoryStore().remove(historyId);
+  },
+  async getExternalVncCredential(_event, sessionId) {
+    const credentials = getExternalVncViewerService().getCredentials(sessionId);
+    if (!credentials) return { ok: false, error: 'VNC viewer session not found.' };
+    return {
+      ok: true,
+      password: credentials.password || null,
+      remembered: credentials.rememberPassword === true,
+      passwordStorageAvailable: getExternalVncHistoryStore().canStorePassword()
+    };
+  },
+  async setExternalVncCredential(_event, request) {
+    return getExternalVncViewerService().setCredentials(request?.sessionId, {
+      password: request?.password,
+      rememberPassword: request?.rememberPassword === true
+    });
+  },
+  async clearExternalVncCredential(_event, request) {
+    const session = getExternalVncViewerService().getSession(request?.sessionId);
+    if (!session) return { ok: false, error: 'VNC viewer session not found.' };
+    getExternalVncViewerService().clearCredentials(session.id);
+    if (request?.forgetRemembered === true && session.historyId) {
+      await getExternalVncHistoryStore().clearRememberedPassword(session.historyId);
+    }
+    return { ok: true };
+  },
+  async recordExternalVncConnection(_event, sessionId) {
+    const service = getExternalVncViewerService();
+    const session = service.getSession(sessionId);
+    const credentials = service.getCredentials(sessionId);
+    if (!session || !credentials) return { ok: false, error: 'VNC viewer session not found.' };
+    const entry = await getExternalVncHistoryStore().recordConnection({
+      host: session.host,
+      port: session.port,
+      displayAddress: session.displayAddress,
+      password: credentials.password,
+      rememberPassword: credentials.rememberPassword
+    });
+    service.attachHistory(session.id, entry.id);
+    return { ok: true, entry };
   },
   async getExternalVncSession(_event, sessionId) {
     const session = getExternalVncViewerService().getSession(sessionId);
@@ -1077,72 +1308,220 @@ const ipcHandlers = {
 
 const webInvokeHandlers = {
   files: {
-    openMachineBundle: wrapWebInvoke(ipcHandlers.openMachineBundle, 'none'),
-    openSaka: wrapWebInvoke(ipcHandlers.openSaka, 'none'),
-    createMachineBundle: wrapWebInvoke(ipcHandlers.createMachineBundle, 'single'),
-    readSaka: wrapWebInvoke(ipcHandlers.readSaka, 'single'),
-    saveSaka: wrapWebInvoke(ipcHandlers.saveSaka, 'single'),
-    saveSakaAs: wrapWebInvoke(ipcHandlers.saveSakaAs, 'single'),
-    trashMachineBundle: wrapWebInvoke(ipcHandlers.trashMachineBundle, 'single'),
-    renamePath: wrapWebInvoke(ipcHandlers.renamePath, 'single'),
-    copyPath: wrapWebInvoke(ipcHandlers.copyPath, 'single'),
-    openPath: wrapWebInvoke(ipcHandlers.openPath, 'single'),
-    openFolder: wrapWebInvoke(ipcHandlers.openFolder, 'single'),
-    pathExists: wrapWebInvoke(ipcHandlers.pathExists, 'single')
-  },
-  dialogs: {
-    selectFolder: wrapWebInvoke(ipcHandlers.selectFolder, 'none'),
-    pickDisk: wrapWebInvoke(ipcHandlers.pickDisk, 'none'),
-    pickIso: wrapWebInvoke(ipcHandlers.pickIso, 'none'),
-    pickFirmwareCode: wrapWebInvoke(ipcHandlers.pickFirmwareCode, 'none'),
-    pickFirmwareVars: wrapWebInvoke(ipcHandlers.pickFirmwareVars, 'none')
+    openMachineBundle: () => null,
+    openSaka: () => null,
+    createMachineBundle: async (payload) => {
+      const result = await ipcHandlers.createMachineBundle(undefined, {
+        ...payload,
+        content: getWebWorkspaceService().prepareNewMachineContent(payload?.content)
+      });
+      const machineRef = getWebWorkspaceService().registerMachinePath(result.path);
+      return { path: machineRef, configPath: `${machineRef}/${MACHINE_CONFIG_FILE}`, machineName: result.machineName };
+    },
+    readSaka: (machineRef) => getWebWorkspaceService().readMachine(machineRef),
+    saveSaka: (payload) => getWebWorkspaceService().saveMachine(payload?.path, payload?.content),
+    saveSakaAs: async (payload) => {
+      const result = await ipcHandlers.createMachineBundle(undefined, {
+        machineName: payload?.defaultName,
+        fallbackName: 'machine',
+        content: getWebWorkspaceService().prepareNewMachineContent(payload?.content)
+      });
+      const machineRef = getWebWorkspaceService().registerMachinePath(result.path);
+      return { path: machineRef, configPath: `${machineRef}/${MACHINE_CONFIG_FILE}`, machineName: result.machineName };
+    },
+    trashMachineBundle: async (machineRef) => ipcHandlers.trashMachineBundle(undefined, getWebWorkspaceService().resolveMachineRef(machineRef)),
+    pathExists: async (machineRef) => {
+      try {
+        await getWebWorkspaceService().resolveValidatedMachineRef(machineRef);
+        return true;
+      } catch (error) {
+        if (error?.code === 'ENOENT') return false;
+        throw error;
+      }
+    }
   },
   disks: {
-    getInfo: wrapWebInvoke(ipcHandlers.getDiskInfo, 'single'),
-    create: wrapWebInvoke(ipcHandlers.createDisk, 'single'),
-    prepareManaged: wrapWebInvoke(ipcHandlers.prepareManagedDisk, 'single'),
-    resize: wrapWebInvoke(ipcHandlers.resizeDisk, 'single'),
-    convert: wrapWebInvoke(ipcHandlers.convertDisk, 'single'),
-    reclaimSpace: wrapWebInvoke(ipcHandlers.reclaimDiskSpace, 'single'),
-    listLocalImages: wrapWebInvoke(ipcHandlers.listLocalImages, 'single')
+    prepareManaged: async (request) => {
+      const workspace = getWebWorkspaceService();
+      const safeRequest = workspace.sanitizeManagedDiskRequest(request?.bundlePath, request);
+      const directory = await workspace.ensureSandboxDirectory(request?.bundlePath, MACHINE_DISKS_DIRECTORY);
+      const { bundlePath: _bundlePath, ...createRequest } = safeRequest;
+      const result = await getDiskImageService().create({ ...createRequest, directory });
+      return {
+        ...result,
+        path: undefined,
+        relativePath: result.ok && result.path
+          ? path.posix.join(MACHINE_DISKS_DIRECTORY, path.basename(result.path))
+          : result.relativePath
+      };
+    },
+    listLocalImages: async (machineRef) => {
+      const workspace = getWebWorkspaceService();
+      const listing = await workspace.listFiles(machineRef, MACHINE_DISKS_DIRECTORY);
+      const images = [];
+      for (const entry of listing.entries) {
+        if (entry.kind !== 'file' || !/\.(qcow2|qed|qcow|vmdk|vhd|vpc|vdi|img|raw)$/i.test(entry.name)) continue;
+        const absolutePath = await workspace.resolveSandboxPath(machineRef, entry.path, { mustExist: true });
+        let format = path.extname(entry.name).slice(1).toLowerCase();
+        let bytes = entry.size;
+        try {
+          const info = await getDiskImageService().getInfo(absolutePath);
+          format = info.format || format;
+          bytes = info.virtualSize || bytes;
+        } catch {
+          // Uploaded raw files can still be listed when qemu-img cannot inspect them.
+        }
+        const capacity = toDisplayDiskCapacity(bytes);
+        images.push({
+          path: entry.path,
+          name: path.parse(entry.name).name,
+          format: format === 'img' ? 'raw' : format,
+          size: capacity.size,
+          unit: capacity.unit
+        });
+      }
+      return { images };
+    }
   },
   settings: {
-    load: wrapWebInvoke(ipcHandlers.loadSettings, 'none'),
-    save: wrapWebInvoke(ipcHandlers.saveSettings, 'single')
+    load: async () => {
+      const settings = await ipcHandlers.loadSettings();
+      return {
+        ...settings,
+        defaultSaveDirectory: '',
+        qemu: { externalDir: '' },
+        templateCatalog: (settings.templateCatalog || []).map((entry) => ({ ...entry, path: '' }))
+      };
+    },
+    save: async (settings) => {
+      const current = await ipcHandlers.loadSettings();
+      const currentTemplates = new Map((current.templateCatalog || []).map((entry) => [entry.key, entry]));
+      return ipcHandlers.saveSettings(undefined, {
+        ...settings,
+        defaultSaveDirectory: current.defaultSaveDirectory,
+        qemu: current.qemu,
+        templateCatalog: (settings.templateCatalog || []).map((entry) => ({
+          ...entry,
+          path: currentTemplates.get(entry.key)?.path || ''
+        }))
+      });
+    }
   },
   recents: {
-    list: wrapWebInvoke(ipcHandlers.listRecents, 'none'),
-    push: wrapWebInvoke(ipcHandlers.pushRecent, 'single'),
-    remove: wrapWebInvoke(ipcHandlers.removeRecent, 'single'),
-    reorder: wrapWebInvoke(ipcHandlers.reorderRecents, 'single')
+    list: async () => getWebWorkspaceService().toWebRecents(await ipcHandlers.listRecents()),
+    push: async (entry) => {
+      const hostEntry = getWebWorkspaceService().toHostRecent(entry);
+      const existing = (await ipcHandlers.listRecents()).find((item) => item.path === hostEntry.path);
+      return getWebWorkspaceService().toWebRecents(
+        await ipcHandlers.pushRecent(undefined, {
+          ...hostEntry,
+          previewImageUrl: existing?.previewImageUrl
+        })
+      );
+    },
+    remove: async (machineRef) => getWebWorkspaceService().toWebRecents(
+      await ipcHandlers.removeRecent(undefined, getWebWorkspaceService().resolveMachineRef(machineRef))
+    ),
+    reorder: async (machineRefs) => getWebWorkspaceService().toWebRecents(
+      await ipcHandlers.reorderRecents(undefined, (machineRefs || []).map((entry) => getWebWorkspaceService().resolveMachineRef(entry)))
+    )
+  },
+  webWorkspace: {
+    renameMachine: async (payload) => {
+      const service = getWebWorkspaceService();
+      const oldBundlePath = service.resolveMachineRef(payload?.machineRef);
+      const recents = await ipcHandlers.listRecents();
+      const existing = recents.find((entry) => entry.path === oldBundlePath);
+      const result = await service.renameMachine(payload?.machineRef, payload?.name);
+      await ipcHandlers.removeRecent(undefined, oldBundlePath);
+      const next = await ipcHandlers.pushRecent(undefined, {
+        ...(existing || {}),
+        id: payload?.machineId || existing?.id,
+        title: result.title,
+        path: result.bundlePath,
+        updatedAt: new Date().toISOString(),
+        previewImageUrl: existing?.previewImageUrl
+      });
+      return { ok: true, path: result.machineRef, title: result.title, recents: service.toWebRecents(next) };
+    },
+    duplicateMachine: async (payload) => {
+      const service = getWebWorkspaceService();
+      const sourceBundlePath = service.resolveMachineRef(payload?.machineRef);
+      const existing = (await ipcHandlers.listRecents()).find((entry) => entry.path === sourceBundlePath);
+      const result = await service.duplicateMachine(payload?.machineRef, payload?.name);
+      const next = await ipcHandlers.pushRecent(undefined, {
+        ...(existing || {}),
+        id: result.machine.id,
+        title: result.machine.title,
+        path: result.bundlePath,
+        updatedAt: result.machine.updated_at || new Date().toISOString(),
+        previewImageUrl: undefined
+      });
+      return { ok: true, path: result.machineRef, machineId: result.machine.id, recents: service.toWebRecents(next) };
+    }
   },
   runtime: {
-    detectQemu: wrapWebInvoke(ipcHandlers.detectQemu, 'none'),
-    getRuntimeEnvironment: wrapWebInvoke(ipcHandlers.getRuntimeEnvironment, 'none'),
-    getSharedFolderEnvironment: wrapWebInvoke(ipcHandlers.getSharedFolderEnvironment, 'none'),
-    buildQemuArgList: wrapWebInvoke(ipcHandlers.buildQemuArgList, 'single'),
-    getFullQemuCommand: wrapWebInvoke(ipcHandlers.getFullQemuCommand, 'single'),
-    applyControlledQemuArgEdit: wrapWebInvoke(ipcHandlers.applyControlledQemuArgEdit, 'single'),
-    removeControlledQemuArg: wrapWebInvoke(ipcHandlers.removeControlledQemuArg, 'single'),
-    normalizeCustomQemuArgs: wrapWebInvoke(ipcHandlers.normalizeCustomQemuArgs, 'single'),
-    previewMachineCommand: wrapWebInvoke(ipcHandlers.previewMachineCommand, 'single'),
-    startMachine: wrapWebInvoke(ipcHandlers.startMachine, 'single'),
-    stopMachine: wrapWebInvoke(ipcHandlers.stopMachine, 'single'),
-    forceStopMachine: wrapWebInvoke(ipcHandlers.forceStopMachine, 'single'),
-    resetMachine: wrapWebInvoke(ipcHandlers.resetMachine, 'single'),
-    changeMedia: wrapWebInvoke(ipcHandlers.changeMedia, 'single'),
+    detectQemu: async () => sanitizeQemuEnvironment(await ipcHandlers.detectQemu()),
+    getRuntimeEnvironment: async () => sanitizeQemuEnvironment(await ipcHandlers.getRuntimeEnvironment()),
+    getSharedFolderEnvironment: async () => sanitizeSharedFolderEnvironment(
+      await ipcHandlers.getSharedFolderEnvironment()
+    ),
+    buildQemuArgList: async (machine) => ipcHandlers.buildQemuArgList(
+      undefined,
+      getWebWorkspaceService().prepareRuntimePreviewMachine(machine)
+    ),
+    getFullQemuCommand: async (machine) => sanitizeFullQemuCommand(
+      await getRuntimeManager().getFullQemuCommand(
+        getWebWorkspaceService().prepareRuntimePreviewMachine(machine),
+        { resolvePaths: false }
+      )
+    ),
+    applyControlledQemuArgEdit: async (payload) => ipcHandlers.applyControlledQemuArgEdit(undefined, {
+      ...payload,
+      machine: getWebWorkspaceService().prepareRuntimePreviewMachine(payload?.machine)
+    }),
+    removeControlledQemuArg: async (payload) => ipcHandlers.removeControlledQemuArg(undefined, {
+      ...payload,
+      machine: getWebWorkspaceService().prepareRuntimePreviewMachine(payload?.machine)
+    }),
+    normalizeCustomQemuArgs: async () => {
+      throw Object.assign(new Error('Web mode cannot modify custom QEMU arguments.'), { code: 'CUSTOM_QEMU_ARGS_DENIED' });
+    },
+    startMachine: async (machineRef) => toWebRuntimeResult(
+      await ipcHandlers.startMachine(
+        undefined,
+        await getWebWorkspaceService().resolveValidatedMachineRef(machineRef)
+      )
+    ),
+    stopMachine: async (machineId) => toWebRuntimeResult(await ipcHandlers.stopMachine(undefined, machineId)),
+    forceStopMachine: async (machineId) => toWebRuntimeResult(await ipcHandlers.forceStopMachine(undefined, machineId)),
+    resetMachine: async (payload) => toWebRuntimeResult(await ipcHandlers.resetMachine(undefined, payload)),
+    changeMedia: async (payload) => {
+      const state = await ipcHandlers.getMachineState(undefined, payload?.machineId);
+      if (!state?.bundlePath) {
+        throw new Error('The running machine is unavailable.');
+      }
+      const machineRef = getWebWorkspaceService().registerMachinePath(state.bundlePath);
+      const isoPath = payload?.isoPath
+        ? await getWebWorkspaceService().resolveSandboxPath(machineRef, payload.isoPath, { mustExist: true })
+        : '';
+      return toWebRuntimeResult(await ipcHandlers.changeMedia(undefined, { ...payload, isoPath }));
+    },
     mountBundledTestNetIso: wrapWebInvoke(ipcHandlers.mountBundledTestNetIso, 'single'),
     mountSanakaToolsIso: wrapWebInvoke(ipcHandlers.mountSanakaToolsIso, 'single'),
     mountSanakaToolsLinuxIso: wrapWebInvoke(ipcHandlers.mountSanakaToolsLinuxIso, 'single'),
-    getMachineState: wrapWebInvoke(ipcHandlers.getMachineState, 'single'),
+    getMachineState: async (machineId) => toWebRuntimeState(await ipcHandlers.getMachineState(undefined, machineId)),
     getWebAudioState: wrapWebInvoke(ipcHandlers.getWebAudioState, 'single'),
-    listRunningMachines: wrapWebInvoke(ipcHandlers.listRunningMachines, 'none')
+    listRunningMachines: async () => (await ipcHandlers.listRunningMachines()).map(toWebRuntimeState)
   },
   machine: {
-    updateSharedFolder: wrapWebInvoke(ipcHandlers.updateSharedFolder, 'spread'),
-    updateClipboardBridge: wrapWebInvoke(ipcHandlers.updateClipboardBridge, 'spread'),
-    exportMachine: wrapWebInvoke(ipcHandlers.exportMachine, 'single'),
-    cancelExport: wrapWebInvoke(ipcHandlers.cancelExport, 'single')
+    updateClipboardBridge: async (machineRef, config) => ipcHandlers.updateClipboardBridge(
+      undefined,
+      await getWebWorkspaceService().resolveValidatedMachineRef(machineRef),
+      config
+    ),
+    exportMachine: (options) => getWebExportService().start(options),
+    cancelExport: (taskId) => getWebExportService().cancel(taskId)
   },
   updater: {
     getCurrentInfo: wrapWebInvoke(ipcHandlers.getUpdaterCurrentInfo, 'none'),
@@ -1152,6 +1531,12 @@ const webInvokeHandlers = {
   },
   viewer: {
     createExternalVncSession: wrapWebInvoke(ipcHandlers.createExternalVncSession, 'single'),
+    listExternalVncHistory: wrapWebInvoke(ipcHandlers.listExternalVncHistory, 'none'),
+    removeExternalVncHistory: wrapWebInvoke(ipcHandlers.removeExternalVncHistory, 'single'),
+    getExternalVncCredential: wrapWebInvoke(ipcHandlers.getExternalVncCredential, 'single'),
+    setExternalVncCredential: wrapWebInvoke(ipcHandlers.setExternalVncCredential, 'single'),
+    clearExternalVncCredential: wrapWebInvoke(ipcHandlers.clearExternalVncCredential, 'single'),
+    recordExternalVncConnection: wrapWebInvoke(ipcHandlers.recordExternalVncConnection, 'single'),
     getExternalVncSession: wrapWebInvoke(ipcHandlers.getExternalVncSession, 'single'),
     listExternalVncSessions: wrapWebInvoke(ipcHandlers.listExternalVncSessions, 'none'),
     closeExternalVncSession: wrapWebInvoke(ipcHandlers.closeExternalVncSession, 'single'),
@@ -1160,11 +1545,21 @@ const webInvokeHandlers = {
     releaseExternalVncProxyTarget: wrapWebInvoke((_event, sessionId, options) => getExternalVncViewerService().releaseProxyTarget(sessionId, options || {}), 'spread')
   },
   app: {
-    getMetadata: wrapWebInvoke(ipcHandlers.getAppMetadata, 'none'),
-    openWebMode: wrapWebInvoke(ipcHandlers.openWebMode, 'none'),
-    getWebModeState: wrapWebInvoke(ipcHandlers.getWebModeState, 'none'),
-    stopWebMode: wrapWebInvoke(ipcHandlers.stopWebMode, 'none'),
-    consumePendingSakaPaths: wrapWebInvoke(ipcHandlers.consumePendingSakaPaths, 'none'),
+    getMetadata: async () => {
+      const metadata = await ipcHandlers.getAppMetadata();
+      return { ...metadata, userDataPath: '', documentsPath: '', defaultMachineDirectory: '' };
+    },
+    getWelcomeVideo: async () => {
+      const service = getWelcomeVideoService();
+      const resolved = await service.resolve().catch(() => null);
+      return {
+        available: Boolean(resolved),
+        url: resolved ? `/video/${encodeURIComponent(resolved.fileName)}` : null,
+        source: resolved?.source || null,
+        version: service.version
+      };
+    },
+    consumePendingSakaPaths: () => [],
     openExternal: wrapWebInvoke(ipcHandlers.openExternal, 'single')
   }
 };
@@ -1248,6 +1643,7 @@ app.whenReady().then(() => {
   ipcMain.handle('recents:remove', ipcHandlers.removeRecent);
   ipcMain.handle('recents:reorder', ipcHandlers.reorderRecents);
   ipcMain.handle('app:get-metadata', ipcHandlers.getAppMetadata);
+  ipcMain.handle('app:get-welcome-video', ipcHandlers.getWelcomeVideo);
   ipcMain.handle('app:open-web-mode', ipcHandlers.openWebMode);
   ipcMain.handle('app:get-web-mode-state', ipcHandlers.getWebModeState);
   ipcMain.handle('app:stop-web-mode', ipcHandlers.stopWebMode);
@@ -1258,10 +1654,19 @@ app.whenReady().then(() => {
   ipcMain.handle('updater:skip-version', ipcHandlers.skipUpdateVersion);
   ipcMain.handle('updater:open-update-page', ipcHandlers.openUpdatePage);
   ipcMain.handle('viewer:create-external-vnc-session', ipcHandlers.createExternalVncSession);
+  ipcMain.handle('viewer:list-external-vnc-history', ipcHandlers.listExternalVncHistory);
+  ipcMain.handle('viewer:remove-external-vnc-history', ipcHandlers.removeExternalVncHistory);
+  ipcMain.handle('viewer:get-external-vnc-credential', ipcHandlers.getExternalVncCredential);
+  ipcMain.handle('viewer:set-external-vnc-credential', ipcHandlers.setExternalVncCredential);
+  ipcMain.handle('viewer:clear-external-vnc-credential', ipcHandlers.clearExternalVncCredential);
+  ipcMain.handle('viewer:record-external-vnc-connection', ipcHandlers.recordExternalVncConnection);
   ipcMain.handle('viewer:get-external-vnc-session', ipcHandlers.getExternalVncSession);
   ipcMain.handle('viewer:list-external-vnc-sessions', ipcHandlers.listExternalVncSessions);
   ipcMain.handle('viewer:close-external-vnc-session', ipcHandlers.closeExternalVncSession);
   ipcMain.handle('runtime:detect-qemu', ipcHandlers.detectQemu);
+  ipcMain.handle('runtime:scan-qemu-directories', ipcHandlers.scanQemuDirectories);
+  ipcMain.handle('runtime:cancel-qemu-directory-scan', ipcHandlers.cancelQemuDirectoryScan);
+  ipcMain.handle('runtime:validate-qemu-directory', ipcHandlers.validateQemuDirectory);
   ipcMain.handle('runtime:get-environment', ipcHandlers.getRuntimeEnvironment);
   ipcMain.handle('runtime:get-shared-folder-environment', ipcHandlers.getSharedFolderEnvironment);
   ipcMain.handle('runtime:build-qemu-arg-list', ipcHandlers.buildQemuArgList);

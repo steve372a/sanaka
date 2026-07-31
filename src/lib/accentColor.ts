@@ -23,58 +23,58 @@ interface ColorPalette {
 
 const PRESET_PALETTES: Record<AccentColor['preset'], ColorPalette> = {
   purple: {
-    lightPrimary: '#C678FF',
-    lightPrimaryStrong: '#A84FE8',
-    lightPrimarySoft: '#E6CFFF',
-    lightSurface: '#F7EFFF',
-    lightPanel: '#FAF5FF',
-    lightPanelSoft: '#F3E6FF',
-    lightPanelMuted: '#EBD9FF',
-    lightBg: '#FCF8FF',
-    darkPrimary: '#D4A3FF',
-    darkPrimaryStrong: '#E6C2FF',
-    darkPrimarySoft: '#7C4FB8',
-    darkSurface: '#2E1F3F',
-    darkPanel: '#261A36',
-    darkPanelSoft: '#322346',
-    darkPanelMuted: '#3D2B52',
-    darkBg: '#1B1225'
+    lightPrimary: '#BCA0C9',
+    lightPrimaryStrong: '#B08DBD',
+    lightPrimarySoft: '#F4EEF7',
+    lightSurface: '#FAF7FB',
+    lightPanel: '#FCFAFD',
+    lightPanelSoft: '#F6F0F9',
+    lightPanelMuted: '#F5EFF7',
+    lightBg: '#FDFCFE',
+    darkPrimary: '#D3ABF7',
+    darkPrimaryStrong: '#E5C7FA',
+    darkPrimarySoft: '#7D58AF',
+    darkSurface: '#2E223C',
+    darkPanel: '#261D33',
+    darkPanelSoft: '#322643',
+    darkPanelMuted: '#3D2F4E',
+    darkBg: '#1B1423'
   },
   blue: {
-    lightPrimary: '#4A90E2',
-    lightPrimaryStrong: '#2F6DB3',
-    lightPrimarySoft: '#7CAEEA',
-    lightSurface: '#F0F6FC',
-    lightPanel: '#EBF4FD',
-    lightPanelSoft: '#E1EEFB',
-    lightPanelMuted: '#D3E5F7',
-    lightBg: '#FAFCFF',
-    darkPrimary: '#6BABF3',
-    darkPrimaryStrong: '#92C1F7',
-    darkPrimarySoft: '#4E94E0',
-    darkSurface: '#172538',
-    darkPanel: '#161F2E',
-    darkPanelSoft: '#1E2C40',
-    darkPanelMuted: '#26364D',
-    darkBg: '#111822'
+    lightPrimary: '#88A8C5',
+    lightPrimaryStrong: '#7696B2',
+    lightPrimarySoft: '#EFF5FA',
+    lightSurface: '#F8FBFD',
+    lightPanel: '#FBFCFE',
+    lightPanelSoft: '#F1F6FA',
+    lightPanelMuted: '#EFF4F8',
+    lightBg: '#FDFEFF',
+    darkPrimary: '#77ACE7',
+    darkPrimaryStrong: '#9BC2EE',
+    darkPrimarySoft: '#5B95D3',
+    darkSurface: '#1A2535',
+    darkPanel: '#18202C',
+    darkPanelSoft: '#212D3D',
+    darkPanelMuted: '#2A3749',
+    darkBg: '#131820'
   },
   orange: {
-    lightPrimary: '#E67E22',
-    lightPrimaryStrong: '#B56217',
-    lightPrimarySoft: '#EEA55B',
-    lightSurface: '#FDF7F2',
-    lightPanel: '#FDF1E7',
-    lightPanelSoft: '#FBE9DB',
-    lightPanelMuted: '#F7DEC9',
-    lightBg: '#FFFCFA',
-    darkPrimary: '#F29C55',
-    darkPrimaryStrong: '#F6B685',
-    darkPrimarySoft: '#D98040',
-    darkSurface: '#33251D',
-    darkPanel: '#2A1E16',
-    darkPanelSoft: '#3B2A20',
-    darkPanelMuted: '#4A3528',
-    darkBg: '#211812'
+    lightPrimary: '#C8A184',
+    lightPrimaryStrong: '#B58E72',
+    lightPrimarySoft: '#FBF4EF',
+    lightSurface: '#FDF9F6',
+    lightPanel: '#FEFCFA',
+    lightPanelSoft: '#FAF2EC',
+    lightPanelMuted: '#FAF4EF',
+    lightBg: '#FFFEFD',
+    darkPrimary: '#E49D63',
+    darkPrimaryStrong: '#ECB78F',
+    darkPrimarySoft: '#CB824E',
+    darkSurface: '#31261F',
+    darkPanel: '#281E18',
+    darkPanelSoft: '#392B22',
+    darkPanelMuted: '#47362B',
+    darkBg: '#201813'
   },
   white: {
     lightPrimary: '#5A5A5A',
@@ -95,22 +95,22 @@ const PRESET_PALETTES: Record<AccentColor['preset'], ColorPalette> = {
     darkBg: '#0D0D0D'
   },
   green: {
-    lightPrimary: '#27AE60',
-    lightPrimaryStrong: '#1C7A44',
-    lightPrimarySoft: '#5BCA88',
-    lightSurface: '#F0FAF4',
-    lightPanel: '#E9F7EF',
-    lightPanelSoft: '#DFF2E6',
-    lightPanelMuted: '#CEEDD8',
-    lightBg: '#FAFFFC',
-    darkPrimary: '#52D68A',
-    darkPrimaryStrong: '#7AE2A5',
-    darkPrimarySoft: '#3ABF72',
-    darkSurface: '#15261E',
-    darkPanel: '#14261D',
-    darkPanelSoft: '#1B3228',
-    darkPanelMuted: '#234032',
-    darkBg: '#0D1A13'
+    lightPrimary: '#85AA95',
+    lightPrimaryStrong: '#739981',
+    lightPrimarySoft: '#EFF6F1',
+    lightSurface: '#F8FCF9',
+    lightPanel: '#FBFDFB',
+    lightPanelSoft: '#F1F7F3',
+    lightPanelMuted: '#EFF5F0',
+    lightBg: '#FDFFFE',
+    darkPrimary: '#5ECA8C',
+    darkPrimaryStrong: '#83D9A7',
+    darkPrimarySoft: '#46B374',
+    darkSurface: '#17241E',
+    darkPanel: '#16241D',
+    darkPanelSoft: '#1D3028',
+    darkPanelMuted: '#263D32',
+    darkBg: '#0E1913'
   }
 };
 
@@ -140,6 +140,10 @@ function getPalette(accentColor: AccentColor): ColorPalette {
     return PRESET_PALETTES[accentColor.preset];
   }
   return derivePalette(accentColor.custom);
+}
+
+export function getAccentPresetColor(preset: AccentColor['preset']): string {
+  return PRESET_PALETTES[preset].lightPrimary;
 }
 
 export function applyAccentColor(accentColor: AccentColor): void {

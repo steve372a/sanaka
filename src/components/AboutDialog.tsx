@@ -45,7 +45,7 @@ export function AboutDialog({ open, onClose }: AboutDialogProps) {
           <h2 id="about-title" className="about-dialog__title">{t('app.about')}</h2>
           <p className="about-dialog__description">{t('app.aboutDescription')}</p>
           <p className="about-dialog__footer">{t('app.aboutFooter')}</p>
-          <p className="about-dialog__version">{appMeta?.version ?? '0.0.3-beta'}</p>
+          <p className="about-dialog__version">{appMeta?.version ?? '0.0.4-beta'}</p>
           <a
             href="https://github.com/steve372a/sanaka"
             className="about-dialog__link"

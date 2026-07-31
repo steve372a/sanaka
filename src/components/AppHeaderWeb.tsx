@@ -3,8 +3,10 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { machineRoute } from '../lib/routes';
 import { makeWorkspaceMachineItems, resolveWorkspaceSelection } from '../lib/machine';
 import { parseSakaContent } from '../lib/saka';
+import { getWebResourceDisplayName } from '../lib/webMode';
 import { useAppStore } from '../store/AppStore';
 import { usePresence } from '../hooks/usePresence';
+import { useListReorderAnimation } from '../hooks/useListReorderAnimation';
 import { useT } from '../hooks/useT';
 import { ExportMachineDialog } from './ExportMachineDialog';
 import { ConnectVncDialog } from './ConnectVncDialog';
@@ -122,12 +124,18 @@ export function AppHeaderWeb({ onLogoClick }: AppHeaderWebProps) {
     title: string;
     author?: string;
     path?: string;
+    mediaIso?: string;
     disks?: Array<{ id: string; name: string; path: string }>;
   } | null>(null);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [connectVncOpen, setConnectVncOpen] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
+  const machineListRef = useRef<HTMLElement>(null);
   const renameModal = usePresence(Boolean(renameTarget));
+  useListReorderAnimation(
+    machineListRef,
+    workspace.items.map((item) => item.path ?? item.id)
+  );
 
   useEffect(() => {
     if (!moreMenuOpen) {
@@ -191,7 +199,10 @@ export function AppHeaderWeb({ onLogoClick }: AppHeaderWebProps) {
   const handleOpenFolder = async (item: typeof workspace.items[0]) => {
     setContextMenu(null);
     if (item.path) {
-      await window.electronAPI.files.openPath(item.path);
+      const opened = await openSakaByPath(item.path, { refreshRecents: false });
+      if (opened) {
+        navigate(`/machines/${encodeURIComponent(opened.machineId)}/files`);
+      }
     }
   };
 
@@ -212,9 +223,10 @@ export function AppHeaderWeb({ onLogoClick }: AppHeaderWebProps) {
         title: draft.machine.title,
         author: draft.machine.author,
         path: item.path,
+        mediaIso: draft.machine.media.iso,
         disks: draft.machine.disks.map((disk) => ({
           id: disk.id,
-          name: disk.path.split(/[/\\]/).pop() || disk.id,
+          name: getWebResourceDisplayName(disk.path) || disk.id,
           path: disk.path
         }))
       });
@@ -239,9 +251,10 @@ export function AppHeaderWeb({ onLogoClick }: AppHeaderWebProps) {
         title: parsed.title,
         author: parsed.author || undefined,
         path: item.path,
+        mediaIso: parsed.media.iso,
         disks: parsed.disks.map((disk) => ({
           id: disk.id,
-          name: disk.path.split(/[/\\]/).pop() || disk.id,
+          name: getWebResourceDisplayName(disk.path) || disk.id,
           path: disk.path
         }))
       });
@@ -274,9 +287,9 @@ export function AppHeaderWeb({ onLogoClick }: AppHeaderWebProps) {
     setConnectVncOpen(true);
   };
 
-  const handleVncConnected = (session: ExternalVncSession, password: string) => {
+  const handleVncConnected = (session: ExternalVncSession) => {
     setConnectVncOpen(false);
-    navigate(`/viewer/vnc/${encodeURIComponent(session.id)}`, { state: { password } });
+    navigate(`/viewer/vnc/${encodeURIComponent(session.id)}`);
   };
 
   return (
@@ -337,13 +350,14 @@ export function AppHeaderWeb({ onLogoClick }: AppHeaderWebProps) {
 
         <div className="workspace-sidebar__section workspace-sidebar__section--machines">
           <div className="workspace-sidebar__label">{t('home.recentMachines')}</div>
-          <nav className="workspace-sidebar__list" aria-label={t('home.recentMachines')}>
+          <nav ref={machineListRef} className="workspace-sidebar__list" aria-label={t('home.recentMachines')}>
             {workspace.items.length === 0 ? (
               <div className="workspace-sidebar__empty">{t('home.sidebarEmpty')}</div>
             ) : (
               workspace.items.map((item) => (
                 <button
                   key={`${item.id}:${item.path ?? item.source}`}
+                  data-list-motion-key={item.path ?? item.id}
                   className={navClass(workspace.primary?.id === item.id && workspace.primary?.path === item.path, Boolean(item.path && item.path === highlightedMachinePath)) + (item.missing ? ' workspace-sidebar__item--missing' : '')}
                   type="button"
                   aria-label={item.title}
@@ -498,7 +512,7 @@ export function AppHeaderWeb({ onLogoClick }: AppHeaderWebProps) {
                       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                     </svg>
                   </span>
-                  <span>{settings.language === 'zh-CN' ? '打开机器文件夹' : 'Open Folder'}</span>
+                  <span>{settings.language === 'zh-CN' ? '管理虚拟机文件' : 'Manage Machine Files'}</span>
                 </button>
                 <button className="context-menu__item" type="button" onClick={() => void handleExport(contextMenu.item)}>
                   <span className="context-menu__icon">

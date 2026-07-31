@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { RecentEntry, WorkspaceMachineItem } from '../domain/schemas';
+import { getElementTransitionOrigin, type FullscreenTransitionOrigin } from '../lib/fullscreenTransition';
 
 function getMachineTheme(entry: { templateLabel?: string; status?: string }) {
   const label = (entry.templateLabel ?? entry.status ?? '').toLowerCase();
@@ -48,7 +49,7 @@ export function MachineVisual({
   imageClassName?: string;
   placeholderLabel?: string;
   isRunning?: boolean;
-  onPlayClick?: () => void;
+  onPlayClick?: (origin: FullscreenTransitionOrigin) => void;
 }) {
   const candidates = useMemo(() => buildPreviewCandidates(entry), [entry]);
   const [candidateIndex, setCandidateIndex] = useState(0);
@@ -70,7 +71,7 @@ export function MachineVisual({
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onPlayClick();
+              onPlayClick(getElementTransitionOrigin(e.currentTarget));
             }}
             title={isRunning ? "进入控制台" : "启动虚拟机"}
           >
@@ -114,7 +115,7 @@ export function MachineVisual({
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            onPlayClick();
+            onPlayClick(getElementTransitionOrigin(e.currentTarget));
           }}
           title={isRunning ? "进入控制台" : "启动虚拟机"}
         >

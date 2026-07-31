@@ -91,6 +91,9 @@ describe('MachineConsolePage', () => {
       },
       runtime: {
         detectQemu: vi.fn(async () => createRuntimeEnvironment()),
+        scanQemuDirectories: vi.fn(async () => ({ candidates: [], roots: [], scannedDirectories: 0, skippedDirectories: 0, elapsedMs: 0, cancelled: false, truncated: false })),
+        cancelQemuDirectoryScan: vi.fn(async () => ({ ok: true as const, cancelled: false })),
+        validateQemuDirectory: vi.fn(async () => ({ ok: false })),
         getRuntimeEnvironment: vi.fn(async () => createRuntimeEnvironment()),
         previewMachineCommand: vi.fn(async () => ({
           machineId: 'machine-1',
@@ -231,6 +234,9 @@ describe('MachineConsolePage', () => {
       },
       runtime: {
         detectQemu: vi.fn(async () => createRuntimeEnvironment()),
+        scanQemuDirectories: vi.fn(async () => ({ candidates: [], roots: [], scannedDirectories: 0, skippedDirectories: 0, elapsedMs: 0, cancelled: false, truncated: false })),
+        cancelQemuDirectoryScan: vi.fn(async () => ({ ok: true as const, cancelled: false })),
+        validateQemuDirectory: vi.fn(async () => ({ ok: false })),
         getRuntimeEnvironment: vi.fn(async () => createRuntimeEnvironment()),
         previewMachineCommand: vi.fn(async () => ({
           machineId: 'machine-1',

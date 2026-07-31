@@ -2,6 +2,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
+import { createMachineFromTemplate } from './domain/templates';
+import { serializeSakaMachine } from './lib/saka';
 import { AppStoreProvider } from './store/AppStore';
 
 const runtimeEnvironment = {
@@ -25,12 +27,22 @@ const runtimeEnvironment = {
 };
 
 function mockElectronApi() {
+  const machine = createMachineFromTemplate('win11');
+  machine.id = 'machine-1';
+  machine.title = 'Windows Dev Box';
   window.electronAPI = {
     files: {
       openMachineBundle: vi.fn(async () => null),
       openSaka: vi.fn(async () => null),
       createMachineBundle: vi.fn(async () => ({ path: '/tmp/example.saka', configPath: '/tmp/example.saka/machine.svm' })),
-      readSaka: vi.fn(async () => null),
+      readSaka: vi.fn(async (path: string) => path === '/tmp/windows-dev-box.saka'
+        ? {
+            path,
+            configPath: `${path}/machine.svm`,
+            content: serializeSakaMachine(machine),
+            legacySingleFile: false
+          }
+        : null),
       saveSaka: vi.fn(async () => ({ path: '/tmp/example.saka', configPath: '/tmp/example.saka/machine.svm' })),
       saveSakaAs: vi.fn(async () => ({ path: '/tmp/example.saka', configPath: '/tmp/example.saka/machine.svm' })),
       trashMachineBundle: vi.fn(async () => ({ ok: true as const })),
@@ -78,6 +90,9 @@ function mockElectronApi() {
     },
     runtime: {
       detectQemu: vi.fn(async () => runtimeEnvironment),
+      scanQemuDirectories: vi.fn(async () => ({ candidates: [], roots: [], scannedDirectories: 0, skippedDirectories: 0, elapsedMs: 0, cancelled: false, truncated: false })),
+      cancelQemuDirectoryScan: vi.fn(async () => ({ ok: true as const, cancelled: false })),
+      validateQemuDirectory: vi.fn(async () => ({ ok: false })),
       getRuntimeEnvironment: vi.fn(async () => runtimeEnvironment),
       previewMachineCommand: vi.fn(async () => ({
         machineId: 'machine-1',
@@ -144,9 +159,14 @@ describe('App', () => {
       </AppStoreProvider>
     );
 
-    await user.click(await screen.findByRole('button', { name: '启动虚拟机' }));
+    const startButtons = await screen.findAllByRole('button', { name: '启动虚拟机' });
+    expect(startButtons).toHaveLength(1);
+    await user.click(startButtons[0]);
 
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(window.electronAPI.runtime.startMachine).toHaveBeenCalledWith('/tmp/windows-dev-box.saka');
+    });
+    expect(await screen.findByRole('dialog', undefined, { timeout: 2000 })).toBeInTheDocument();
     expect(screen.getByText('启动失败')).toBeInTheDocument();
     expect(screen.getByText('无法启动虚拟机。下面是 QEMU 返回的原始错误。')).toBeInTheDocument();
     expect(screen.getByText('QEMU / Runtime')).toBeInTheDocument();

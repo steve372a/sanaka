@@ -6,7 +6,6 @@ sanaka_load_i18n
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUTPUT_ROOT="$REPO_ROOT/release"
-EMBED_ARGS=()
 QEMU_BUILD_DIR_INPUT="${1:-}"
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
@@ -66,10 +65,6 @@ fi
 
 QEMU_BUILD_DIR="$(cd "$QEMU_BUILD_DIR" && pwd)"
 
-if [[ "${2:-}" == "--adhoc-sign" ]] || [[ "${SANAKA_MAC_ADHOC_SIGN:-}" == "1" ]]; then
-  EMBED_ARGS+=("--adhoc-sign")
-fi
-
 resolve_macos_arch() {
   local app_path="$1"
   case "$app_path" in
@@ -92,13 +87,8 @@ if [[ "$APP_PATH" == "" ]]; then
   exit 1
 fi
 
-if [[ "${#EMBED_ARGS[@]}" -gt 0 ]]; then
-  SANAKA_QEMU_AARCH64_ENTITLEMENTS="$REPO_ROOT/build/qemu-aarch64.entitlements.plist" \
-    bash "$REPO_ROOT/scripts/embed-qemu-macos.sh" "$QEMU_BUILD_DIR" "$APP_PATH" "${EMBED_ARGS[@]}"
-else
-  SANAKA_QEMU_AARCH64_ENTITLEMENTS="$REPO_ROOT/build/qemu-aarch64.entitlements.plist" \
-    bash "$REPO_ROOT/scripts/embed-qemu-macos.sh" "$QEMU_BUILD_DIR" "$APP_PATH"
-fi
+SANAKA_QEMU_AARCH64_ENTITLEMENTS="$REPO_ROOT/build/qemu-aarch64.entitlements.plist" \
+  bash "$REPO_ROOT/scripts/embed-qemu-macos.sh" "$QEMU_BUILD_DIR" "$APP_PATH" --adhoc-sign
 
 LSREGISTER_BIN="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 

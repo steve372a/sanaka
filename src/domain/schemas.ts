@@ -39,7 +39,14 @@ export const templateCatalogEntrySchema = z.object({
 export const appSettingsSchema = z.object({
   language: languageSchema,
   theme: z.enum(['light', 'dark', 'system']).default('system'),
+  reduceMotion: z.boolean().default(false),
+  showWelcomeOnStartup: z.boolean().default(true),
   defaultSaveDirectory: z.string(),
+  qemu: z
+    .object({
+      externalDir: z.string().default('')
+    })
+    .default({ externalDir: '' }),
   webMode: z
     .object({
       port: z.number().int().min(1).max(65535).default(25895)
@@ -58,16 +65,18 @@ export const appSettingsSchema = z.object({
   experimental: z.object({
     brandedHero: z.boolean(),
     advancedConsole: z.boolean(),
-    protocolInspector: z.boolean()
+    protocolInspector: z.boolean(),
+    webMode: z.boolean().default(false),
+    rawQemuValues: z.boolean().default(false)
   }),
   accentColor: z
     .object({
       mode: z.enum(['preset', 'custom']),
       preset: accentColorPresetSchema.default('purple'),
       custom: accentColorCustomSchema.default({
-        lightPrimary: '#C678FF',
+        lightPrimary: '#BCA0C9',
         lightSurface: '#F7EFFF',
-        darkPrimary: '#D4A3FF',
+        darkPrimary: '#D3ABF7',
         darkSurface: '#2E1F3F'
       }),
       templates: z.array(accentColorTemplateSchema).default([])
@@ -76,9 +85,9 @@ export const appSettingsSchema = z.object({
       mode: 'preset',
       preset: 'purple',
       custom: {
-        lightPrimary: '#C678FF',
+        lightPrimary: '#BCA0C9',
         lightSurface: '#F7EFFF',
-        darkPrimary: '#D4A3FF',
+        darkPrimary: '#D3ABF7',
         darkSurface: '#2E1F3F'
       },
       templates: []

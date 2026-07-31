@@ -54,4 +54,24 @@ describe('ExternalVncViewerService', () => {
     expect(released?.activeConnections).toBe(0);
     expect(released).not.toHaveProperty('password');
   });
+
+  it('keeps credentials private while allowing the active viewer to update them', () => {
+    const service = new ExternalVncViewerService();
+    const session = service.createSession({
+      host: '192.168.1.30',
+      historyId: 'history-1'
+    });
+
+    expect(service.setCredentials(session.id, { password: 'secret', rememberPassword: true })).toEqual({
+      ok: true,
+      hasPassword: true,
+      rememberPassword: true
+    });
+    expect(service.getCredentials(session.id)).toEqual({ password: 'secret', rememberPassword: true });
+    expect(service.getSession(session.id)).toMatchObject({ historyId: 'history-1', hasPassword: true });
+    expect(service.getSession(session.id)).not.toHaveProperty('password');
+
+    service.clearCredentials(session.id);
+    expect(service.getCredentials(session.id)).toEqual({ password: '', rememberPassword: false });
+  });
 });

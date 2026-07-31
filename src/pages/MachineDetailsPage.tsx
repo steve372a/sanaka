@@ -3,8 +3,10 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { MachineVisual } from '../components/MachineVisual';
 import { StatusChip } from '../components/Field';
 import { useT } from '../hooks/useT';
+import type { FullscreenTransitionOrigin } from '../lib/fullscreenTransition';
 import { makeAudioHint, makeDisplayHint } from '../lib/machine';
 import { consoleRoute } from '../lib/routes';
+import { getWebResourceDisplayName, isWebMode } from '../lib/webMode';
 import { useAppStore } from '../store/AppStore';
 
 // 图标组件
@@ -21,6 +23,12 @@ const EditIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
     <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+  </svg>
+);
+
+const FolderIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 6.8A1.8 1.8 0 0 1 4.8 5h5l2 2h7.4A1.8 1.8 0 0 1 21 8.8v8.4a1.8 1.8 0 0 1-1.8 1.8H4.8A1.8 1.8 0 0 1 3 17.2Z" />
   </svg>
 );
 
@@ -116,8 +124,10 @@ function ConfigItem({ icon, label, value }: ConfigItemProps) {
   return (
     <div className="details-config-item">
       <span className="details-config-item__icon">{icon}</span>
-      <span className="details-config-item__label">{label}</span>
-      <span className="details-config-item__value">{value}</span>
+      <span className="details-config-item__copy">
+        <span className="details-config-item__label">{label}</span>
+        <span className="details-config-item__value" title={value}>{value}</span>
+      </span>
     </div>
   );
 }
@@ -126,7 +136,6 @@ export function MachineDetailsPage() {
   const {
     draft,
     openSakaByPath,
-    saveDraft,
     settings,
     runtimeEnvironment,
     getRuntimeStateForMachine,
@@ -171,12 +180,12 @@ export function MachineDetailsPage() {
   const qemuAvailable = runtimeEnvironment?.available ?? false;
   const audioHint = makeAudioHint(machine.display.frontend, machine.display.sanaka?.backend ?? settings.runtimeDefaults.displayBackendHint, machine.advanced.audio_backend);
 
-  const handlePlayClick = () => {
+  const handlePlayClick = (origin: FullscreenTransitionOrigin) => {
     if (!draft.filePath || !qemuAvailable) return;
     if (isMachineRunning) {
       triggerTransition('console', () => {
         navigate(consoleRoute(machine.id, draft.filePath!));
-      });
+      }, origin);
     } else {
       triggerTransition('launch', async () => {
         pendingConsolePathRef.current = draft.filePath!;
@@ -186,7 +195,7 @@ export function MachineDetailsPage() {
           return;
         }
         pendingConsolePathRef.current = null;
-      });
+      }, origin);
     }
   };
 
@@ -214,52 +223,33 @@ export function MachineDetailsPage() {
         <section className="details-header-section">
           <div className="details-header-main">
             <h1 className="details-title">{machine.title}</h1>
-            <p className="details-subtitle">{machine.template.label}</p>
+            <div className="details-meta-row">
+              <p className="details-subtitle">{machine.template.label}</p>
+              <StatusChip tone={statusTone(machineStatus)}>
+                {statusLabel(machineStatus, t)}
+              </StatusChip>
+            </div>
           </div>
           <div className="details-header-actions">
+            {isWebMode() && draft.filePath && (
+              <button
+                className="button button--secondary details-edit-button"
+                type="button"
+                onClick={() => navigate(`/machines/${encodeURIComponent(machine.id)}/files`)}
+              >
+                <FolderIcon />
+                <span>{t('webFiles.title')}</span>
+              </button>
+            )}
             <button
-              className="details-edit-btn"
+              className="button details-edit-button"
               type="button"
               onClick={() => navigate('/machines/new')}
-              title={t('details.editConfig')}
-              aria-label={t('details.editConfig')}
             >
               <EditIcon />
-            </button>
-            <StatusChip tone={statusTone(machineStatus)}>
-              {statusLabel(machineStatus, t)}
-            </StatusChip>
-          </div>
-        </section>
-
-        {/* 操作按钮区域 */}
-        <section className="details-actions-section">
-          <div className="details-actions-row">
-            <button
-              className="button button--primary"
-              type="button"
-              disabled={!qemuAvailable}
-              onClick={handlePlayClick}
-              title={!qemuAvailable ? t('details.qemuMissingHint') : undefined}
-            >
-              {isMachineRunning ? t('details.enterMachine') : t('details.openConsole')}
-            </button>
-            <button
-              className="button button--secondary"
-              type="button"
-              onClick={() => void saveDraft('save')}
-            >
-              {t('details.saveMachine')}
+              <span>{t('details.editConfig')}</span>
             </button>
           </div>
-          <button
-            className="details-edit-link"
-            type="button"
-            onClick={() => navigate('/machines/new')}
-          >
-            <EditIcon />
-            <span>{t('details.editConfig')}</span>
-          </button>
         </section>
 
         {/* QEMU 警告 */}
@@ -296,7 +286,7 @@ export function MachineDetailsPage() {
             <ConfigItem
               icon={<MediaIcon />}
               label={t('details.media')}
-              value={machine.media.iso || t('details.noMedia')}
+              value={getWebResourceDisplayName(machine.media.iso) || t('details.noMedia')}
             />
             <ConfigItem
               icon={<DiskIcon />}

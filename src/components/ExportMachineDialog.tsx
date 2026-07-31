@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useT } from '../hooks/useT';
 import { usePresence } from '../hooks/usePresence';
 import type { ExportProgress } from '../types/electron';
+import { isExternalWebResource, isWebMode, showWebModificationNotice } from '../lib/webMode';
 
 interface ExportMachineDialogProps {
   open: boolean;
@@ -11,6 +12,7 @@ interface ExportMachineDialogProps {
     title: string;
     author?: string;
     path?: string;
+    mediaIso?: string;
     disks?: Array<{ id: string; name: string; path: string; size?: string }>;
   };
 }
@@ -47,6 +49,7 @@ const CheckIcon = () => (
 
 export function ExportMachineDialog({ open, onClose, machine }: ExportMachineDialogProps) {
   const t = useT();
+  const webMode = isWebMode();
   const { mounted, visible } = usePresence(open, 300);
 
   // 表单状态
@@ -96,9 +99,11 @@ export function ExportMachineDialog({ open, onClose, machine }: ExportMachineDia
   // 初始化磁盘选择（默认全选）
   useEffect(() => {
     if (machine.disks && machine.disks.length > 0) {
-      setSelectedDisks(machine.disks.map(d => d.id));
+      setSelectedDisks(machine.disks
+        .filter((disk) => !webMode || !isExternalWebResource(disk.path))
+        .map((disk) => disk.id));
     }
-  }, [machine.disks]);
+  }, [machine.disks, webMode]);
 
   // 重置表单当对话框打开时
   useEffect(() => {
@@ -120,10 +125,12 @@ export function ExportMachineDialog({ open, onClose, machine }: ExportMachineDia
       setActiveTaskId(null);
       setCompletedOutputPath('');
       if (machine.disks && machine.disks.length > 0) {
-        setSelectedDisks(machine.disks.map(d => d.id));
+        setSelectedDisks(machine.disks
+          .filter((disk) => !webMode || !isExternalWebResource(disk.path))
+          .map((disk) => disk.id));
       }
     }
-  }, [open, machine]);
+  }, [open, machine, webMode]);
 
   useEffect(() => {
     const unsubscribe = window.electronAPI.machine.onExportProgress((payload) => {
@@ -174,6 +181,11 @@ export function ExportMachineDialog({ open, onClose, machine }: ExportMachineDia
 
   // 处理磁盘选择切换
   const handleDiskToggle = (diskId: string) => {
+    const disk = machine.disks?.find((entry) => entry.id === diskId);
+    if (webMode && isExternalWebResource(disk?.path)) {
+      showWebModificationNotice();
+      return;
+    }
     setSelectedDisks(prev =>
       prev.includes(diskId)
         ? prev.filter(id => id !== diskId)
@@ -199,7 +211,7 @@ export function ExportMachineDialog({ open, onClose, machine }: ExportMachineDia
       setError(t('export.error.noSourcePath'));
       return;
     }
-    if (!outputPath.trim()) {
+    if (!webMode && !outputPath.trim()) {
       setError(t('export.error.noOutputPath'));
       return;
     }
@@ -220,12 +232,12 @@ export function ExportMachineDialog({ open, onClose, machine }: ExportMachineDia
     try {
       const taskId = await window.electronAPI.machine.exportMachine({
         sourcePath: machine.path,
-        targetDir: outputPath.trim(),
+        targetDir: webMode ? '' : outputPath.trim(),
         name: machineName.trim(),
         author: author.trim(),
         includeIso,
         selectedDisks,
-        packAsZip
+        packAsZip: webMode ? true : packAsZip
       });
       setActiveTaskId(taskId);
     } catch (err) {
@@ -256,6 +268,15 @@ export function ExportMachineDialog({ open, onClose, machine }: ExportMachineDia
     const targetPath = completedOutputPath || outputPath;
     if (targetPath) {
       try {
+        if (webMode) {
+          const link = document.createElement('a');
+          link.href = targetPath;
+          link.download = '';
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          return;
+        }
         await window.electronAPI.files.openFolder(targetPath);
       } catch (err) {
         console.error('打开文件夹失败:', err);
@@ -332,7 +353,7 @@ export function ExportMachineDialog({ open, onClose, machine }: ExportMachineDia
                   {t('export.completeTitle', { name: machineName })}
                 </p>
                 <p className="export-dialog__complete-path">
-                  {completedOutputPath}
+                  {webMode ? t('export.webDownloadDescription') : completedOutputPath}
                 </p>
               </div>
 
@@ -342,8 +363,8 @@ export function ExportMachineDialog({ open, onClose, machine }: ExportMachineDia
                   className="button button--secondary"
                   onClick={handleOpenFolder}
                 >
-                  <FolderIcon />
-                  {t('export.openFolder')}
+                  {webMode ? <ExportIcon /> : <FolderIcon />}
+                  {webMode ? t('export.download') : t('export.openFolder')}
                 </button>
                 <button
                   type="button"
@@ -452,7 +473,18 @@ export function ExportMachineDialog({ open, onClose, machine }: ExportMachineDia
                     type="checkbox"
                     className="custom-checkbox__input"
                     checked={includeIso}
-                    onChange={(e) => setIncludeIso(e.target.checked)}
+                    aria-disabled={webMode && isExternalWebResource(machine.mediaIso)}
+                    onClick={(event) => {
+                      if (webMode && isExternalWebResource(machine.mediaIso)) {
+                        event.preventDefault();
+                        showWebModificationNotice();
+                      }
+                    }}
+                    onChange={(e) => {
+                      if (!webMode || !isExternalWebResource(machine.mediaIso)) {
+                        setIncludeIso(e.target.checked);
+                      }
+                    }}
                   />
                   <span className="custom-checkbox__box">
                     {includeIso && <CheckIcon />}
@@ -470,10 +502,12 @@ export function ExportMachineDialog({ open, onClose, machine }: ExportMachineDia
                     <div className="export-dialog__disk-list">
                       {machine.disks.map(disk => {
                         const isChecked = selectedDisks.includes(disk.id);
+                        const isExternal = webMode && isExternalWebResource(disk.path);
                         return (
                           <label
                             key={disk.id}
                             className={`export-dialog__disk-item ${isChecked ? 'export-dialog__disk-item--checked' : 'export-dialog__disk-item--unchecked'}`}
+                            aria-disabled={isExternal}
                           >
                             <DiskIcon />
                             <span className="export-dialog__disk-info">
@@ -484,6 +518,7 @@ export function ExportMachineDialog({ open, onClose, machine }: ExportMachineDia
                               type="checkbox"
                               className="custom-checkbox__input"
                               checked={isChecked}
+                              aria-disabled={isExternal}
                               onChange={() => handleDiskToggle(disk.id)}
                             />
                             <span className="custom-checkbox__box">
@@ -500,7 +535,14 @@ export function ExportMachineDialog({ open, onClose, machine }: ExportMachineDia
               {/* 输出设置 */}
               <div className="export-dialog__section">
                 <h3 className="export-dialog__section-title">{t('export.outputSettings')}</h3>
-
+                {webMode ? (
+                  <div className="export-dialog__info-card">
+                    <div className="export-dialog__info-row">
+                      <span className="export-dialog__info-label">{t('export.webDownloadTitle')}</span>
+                      <span className="export-dialog__info-value">{t('export.webDownloadDescription')}</span>
+                    </div>
+                  </div>
+                ) : <>
                 <label className="export-dialog__option">
                   <input
                     type="checkbox"
@@ -540,6 +582,7 @@ export function ExportMachineDialog({ open, onClose, machine }: ExportMachineDia
                     </button>
                   </div>
                 </div>
+                </>}
               </div>
 
               {/* 错误提示 */}

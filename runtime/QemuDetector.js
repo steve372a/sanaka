@@ -45,13 +45,17 @@ async function isExecutable(filePath) {
 }
 
 async function resolveBinary(binaryName, platform, env, searchRoots = []) {
+  return resolveBinaryWithOptions(binaryName, platform, env, searchRoots, true);
+}
+
+async function resolveBinaryWithOptions(binaryName, platform, env, searchRoots = [], includeEnvPath = true) {
   if (path.isAbsolute(binaryName) || binaryName.includes(path.sep)) {
     return (await isExecutable(binaryName)) ? binaryName : null;
   }
 
   const searchPaths = [
     ...searchRoots.filter(Boolean),
-    ...splitPathValue(env.PATH)
+    ...(includeEnvPath ? splitPathValue(env.PATH) : [])
   ];
   const extensions = getExecutableExtensions(platform, env);
 
@@ -184,16 +188,43 @@ function makeBundledSearchRoots(options = {}) {
   return Array.from(new Set(roots.map((entry) => path.resolve(entry))));
 }
 
+function makeExternalSearchRoots(externalDir) {
+  const normalized = String(externalDir || '').trim();
+  if (!normalized) return [];
+  const resolvedRoot = path.resolve(normalized);
+  return Array.from(new Set([resolvedRoot, path.join(resolvedRoot, 'bin')]));
+}
+
+function makeEmptyBinaryMap() {
+  return Object.fromEntries(
+    Object.entries(BINARY_CANDIDATES).map(([key, binaryName]) => [key, {
+      name: binaryName,
+      found: false,
+      path: null,
+      version: null
+    }])
+  );
+}
+
+function inferEffectiveRootFromBinary(binaryPath) {
+  if (!binaryPath) return null;
+  const binDir = path.dirname(binaryPath);
+  return path.basename(binDir).toLowerCase() === 'bin' ? path.dirname(binDir) : binDir;
+}
+
 class QemuDetector {
   constructor(options = {}) {
     this.platform = options.platform || process.platform;
     this.arch = options.arch || process.arch;
     this.env = options.env || process.env;
     this.execFileImpl = options.execFileImpl || execFileAsync;
+    this.resourcesPath = options.resourcesPath || process.resourcesPath;
+    this.externalDir = typeof options.externalDir === 'string' ? options.externalDir.trim() : '';
     this.searchRoots = makeBundledSearchRoots(options);
   }
 
   async detect() {
+    if (this.externalDir) return this.detectFromExternalDir();
     const binaries = {};
 
     for (const [key, binaryName] of Object.entries(BINARY_CANDIDATES)) {
@@ -210,15 +241,112 @@ class QemuDetector {
       .filter(([key, entry]) => key !== 'qemuImg' && entry.found)
       .map(([key]) => key);
 
+    const bundledRoot = typeof this.resourcesPath === 'string' && this.resourcesPath.trim()
+      ? path.resolve(path.join(this.resourcesPath, 'qemu'))
+      : null;
+    const firstAvailableBinary = Object.values(binaries).find((entry) => entry.found && entry.path)?.path || null;
+    const effectiveRoot = inferEffectiveRootFromBinary(firstAvailableBinary);
+    const source = bundledRoot && firstAvailableBinary
+      && (path.resolve(firstAvailableBinary) === bundledRoot || path.resolve(firstAvailableBinary).startsWith(`${bundledRoot}${path.sep}`))
+      ? 'bundled'
+      : 'auto-detected';
+
     return {
       checkedAt: new Date().toISOString(),
       platform: this.platform,
       arch: this.arch,
       available: availableSystemTargets.length > 0,
+      source,
+      configuredExternalDir: '',
+      effectiveRoot,
+      errorCode: null,
+      errorMessage: null,
       availableSystemTargets,
       accelerators: inferAccelerators(this.platform),
       installHint: makeInstallHint(this.platform),
       searchRoots: [...this.searchRoots],
+      binaries
+    };
+  }
+
+  async detectFromExternalDir() {
+    const configuredExternalDir = path.resolve(this.externalDir);
+    const searchRoots = makeExternalSearchRoots(configuredExternalDir);
+    const binaries = makeEmptyBinaryMap();
+
+    try {
+      const stats = await fs.stat(configuredExternalDir);
+      if (!stats.isDirectory()) {
+        return this.makeExternalErrorEnvironment({
+          configuredExternalDir, searchRoots, binaries,
+          errorCode: 'QEMU_EXTERNAL_DIR_NOT_DIRECTORY',
+          errorMessage: `Configured QEMU directory is not a folder: ${configuredExternalDir}`
+        });
+      }
+    } catch (error) {
+      return this.makeExternalErrorEnvironment({
+        configuredExternalDir, searchRoots, binaries,
+        errorCode: error?.code === 'ENOENT' ? 'QEMU_EXTERNAL_DIR_NOT_FOUND' : 'QEMU_EXTERNAL_DIR_UNREADABLE',
+        errorMessage: error?.code === 'ENOENT'
+          ? `Configured QEMU directory was not found: ${configuredExternalDir}`
+          : `Configured QEMU directory could not be read: ${configuredExternalDir}`
+      });
+    }
+
+    for (const [key, binaryName] of Object.entries(BINARY_CANDIDATES)) {
+      const resolvedPath = await resolveBinaryWithOptions(binaryName, this.platform, this.env, searchRoots, false);
+      binaries[key] = {
+        name: binaryName,
+        found: Boolean(resolvedPath),
+        path: resolvedPath,
+        version: resolvedPath ? await readVersion(resolvedPath, this.execFileImpl) : null
+      };
+    }
+
+    const availableSystemTargets = Object.entries(binaries)
+      .filter(([key, entry]) => key !== 'qemuImg' && entry.found)
+      .map(([key]) => key);
+    if (availableSystemTargets.length === 0) {
+      return this.makeExternalErrorEnvironment({
+        configuredExternalDir, searchRoots, binaries,
+        errorCode: 'QEMU_EXTERNAL_BINARIES_MISSING',
+        errorMessage: `No QEMU system binaries were found in the configured directory: ${configuredExternalDir}`
+      });
+    }
+
+    return {
+      checkedAt: new Date().toISOString(),
+      platform: this.platform,
+      arch: this.arch,
+      available: true,
+      source: 'external-configured',
+      configuredExternalDir,
+      effectiveRoot: configuredExternalDir,
+      errorCode: null,
+      errorMessage: null,
+      availableSystemTargets,
+      accelerators: inferAccelerators(this.platform),
+      installHint: makeInstallHint(this.platform),
+      searchRoots,
+      binaries
+    };
+  }
+
+  makeExternalErrorEnvironment({ configuredExternalDir, searchRoots, binaries, errorCode, errorMessage }) {
+    return {
+      checkedAt: new Date().toISOString(),
+      platform: this.platform,
+      arch: this.arch,
+      available: false,
+      source: 'external-configured',
+      configuredExternalDir,
+      effectiveRoot: configuredExternalDir,
+      errorCode,
+      errorMessage,
+      availableSystemTargets: [],
+      accelerators: inferAccelerators(this.platform),
+      installHint: makeInstallHint(this.platform),
+      searchRoots,
       binaries
     };
   }

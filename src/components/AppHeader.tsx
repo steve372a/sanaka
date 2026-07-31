@@ -6,6 +6,7 @@ import { makeWorkspaceMachineItems, resolveWorkspaceSelection } from '../lib/mac
 import { parseSakaContent } from '../lib/saka';
 import { useAppStore } from '../store/AppStore';
 import { usePresence } from '../hooks/usePresence';
+import { useListReorderAnimation } from '../hooks/useListReorderAnimation';
 import { useT } from '../hooks/useT';
 import { ExportMachineDialog } from './ExportMachineDialog';
 import { ConnectVncDialog } from './ConnectVncDialog';
@@ -141,6 +142,11 @@ export function AppHeader({ onLogoClick }: AppHeaderProps) {
   const sortableRef = useRef<Sortable | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const renameModal = usePresence(Boolean(renameTarget));
+  useListReorderAnimation(
+    machineListRef,
+    workspace.items.map((item) => item.path ?? item.id),
+    isDragging
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -189,7 +195,7 @@ export function AppHeader({ onLogoClick }: AppHeaderProps) {
     }
 
     sortableRef.current = Sortable.create(machineListRef.current, {
-      animation: 200,
+      animation: settings.reduceMotion ? 0 : 200,
       delay: 500,
       delayOnTouchOnly: true,
       touchStartThreshold: 5,
@@ -212,7 +218,7 @@ export function AppHeader({ onLogoClick }: AppHeaderProps) {
       sortableRef.current?.destroy();
       sortableRef.current = null;
     };
-  }, [workspace.items.length, recents]);
+  }, [workspace.items.length, recents, settings.reduceMotion]);
 
   const navClass = (active: boolean, flash: boolean) => {
     const classNames = ['workspace-sidebar__item'];
@@ -380,9 +386,9 @@ export function AppHeader({ onLogoClick }: AppHeaderProps) {
     setConnectVncOpen(true);
   };
 
-  const handleVncConnected = (session: ExternalVncSession, password: string) => {
+  const handleVncConnected = (session: ExternalVncSession) => {
     setConnectVncOpen(false);
-    navigate(`/viewer/vnc/${encodeURIComponent(session.id)}`, { state: { password } });
+    navigate(`/viewer/vnc/${encodeURIComponent(session.id)}`);
   };
 
   const handleOpenWebModeInBrowser = async () => {
@@ -512,6 +518,7 @@ export function AppHeader({ onLogoClick }: AppHeaderProps) {
                 <button
                   key={`${item.id}:${item.path ?? item.source}`}
                   data-id={item.path ?? item.id}
+                  data-list-motion-key={item.path ?? item.id}
                   className={navClass(
                     workspace.primary?.id === item.id && workspace.primary?.path === item.path,
                     Boolean(item.path && item.path === highlightedMachinePath)

@@ -27,3 +27,6 @@ docs/assets/archive/
 dos（codex不用看）/
 nul  
 release-upload/
+
+# Welcome videos are release assets, not repository source files
+video/*.mp4

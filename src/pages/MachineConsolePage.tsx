@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAppStore } from '../store/AppStore';
 import { useT } from '../hooks/useT';
 import { NoVncViewport, type NoVncInputMode, type NoVncScaleMode, type NoVncViewportHandle } from '../components/NoVncViewport';
+import { WebFilePickerDialog } from '../components/WebFileBrowser';
 import { usePresence } from '../hooks/usePresence';
 import { makeAudioHint, makeDisplayHint } from '../lib/machine';
 import { formatRuntimeBackend } from '../lib/console-session';
@@ -45,14 +46,12 @@ const InfoCircleIcon = () => (
   </svg>
 );
 
-const DiskDriveIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
-    <circle cx="12" cy="12" r="10" />
-    <circle cx="12" cy="12" r="4" />
-    <line x1="12" y1="2" x2="12" y2="8" />
-    <line x1="12" y1="16" x2="12" y2="22" />
-    <line x1="2" y1="12" x2="8" y2="12" />
-    <line x1="16" y1="12" x2="22" y2="12" />
+const OpticalDiscIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+    <circle cx="12" cy="12" r="9.25" />
+    <circle cx="12" cy="12" r="2.1" />
+    <path d="M15.3 6.2a7 7 0 0 1 2.5 2.5" />
+    <path d="M8.7 17.8a7 7 0 0 1-2.5-2.5" />
   </svg>
 );
 
@@ -288,6 +287,7 @@ export function MachineConsolePage() {
   const viewportRef = useRef<NoVncViewportHandle>(null);
   const hiddenInputRef = useRef<HTMLInputElement>(null);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const [webMediaPickerOpen, setWebMediaPickerOpen] = useState(false);
   const [inputMode, setInputMode] = useState<NoVncInputMode>('touch');
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioSocketRef = useRef<WebSocket | null>(null);
@@ -504,6 +504,10 @@ export function MachineConsolePage() {
 
   const handleChangeDisk = async () => {
     if (!machinePath || !runtimeMachineId) return;
+    if (isWebMode) {
+      setWebMediaPickerOpen(true);
+      return;
+    }
     const result = await window.electronAPI.dialogs.pickIso();
     if (result?.path) {
       const changeResult = await window.electronAPI.runtime.changeMedia({
@@ -523,6 +527,25 @@ export function MachineConsolePage() {
         await openSakaByPath(machinePath);
       }
     }
+  };
+
+  const handleWebMediaSelected = async (relativePath: string) => {
+    if (!runtimeMachineId) return;
+    const changeResult = await window.electronAPI.runtime.changeMedia({
+      machineId: runtimeMachineId,
+      isoPath: relativePath,
+      drive: 'cdrom'
+    });
+    if (!changeResult.ok) {
+      setStartError({
+        title: t('console.changeDisk'),
+        description: t('console.runtimeError'),
+        detail: changeResult.error || undefined
+      });
+      return;
+    }
+    setWebMediaPickerOpen(false);
+    if (machinePath) await openSakaByPath(machinePath);
   };
 
   const handleBack = () => {
@@ -789,7 +812,7 @@ export function MachineConsolePage() {
                 title={t('console.changeDisk')}
                 aria-label={t('console.changeDisk')}
               >
-                <DiskDriveIcon />
+                <OpticalDiscIcon />
               </button>
               <button
                 className="console-topbar__btn"
@@ -885,7 +908,7 @@ export function MachineConsolePage() {
             onClick={handleChangeDisk}
             title={t('console.changeDisk')}
           >
-            <DiskDriveIcon />
+            <OpticalDiscIcon />
             <span className="console-mobile-toolbar__label">{t('console.changeDisk')}</span>
           </button>
           <button
@@ -1132,6 +1155,16 @@ export function MachineConsolePage() {
             </div>
           </div>
         </div>
+      )}
+      {isWebMode && machinePath && (
+        <WebFilePickerDialog
+          open={webMediaPickerOpen}
+          machineRef={machinePath}
+          directory="Media"
+          accept=".iso,.img"
+          onSelect={(relativePath) => void handleWebMediaSelected(relativePath)}
+          onClose={() => setWebMediaPickerOpen(false)}
+        />
       )}
     </div>
   );

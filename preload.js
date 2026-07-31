@@ -52,6 +52,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   runtime: {
     detectQemu: () => ipcRenderer.invoke('runtime:detect-qemu'),
+    scanQemuDirectories: () => ipcRenderer.invoke('runtime:scan-qemu-directories'),
+    cancelQemuDirectoryScan: () => ipcRenderer.invoke('runtime:cancel-qemu-directory-scan'),
+    validateQemuDirectory: (directoryPath) => ipcRenderer.invoke('runtime:validate-qemu-directory', directoryPath),
     getRuntimeEnvironment: () => ipcRenderer.invoke('runtime:get-environment'),
     getSharedFolderEnvironment: () => ipcRenderer.invoke('runtime:get-shared-folder-environment'),
     buildQemuArgList: (machine) => ipcRenderer.invoke('runtime:build-qemu-arg-list', machine),
@@ -88,12 +91,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   viewer: {
     createExternalVncSession: (request) => ipcRenderer.invoke('viewer:create-external-vnc-session', request),
+    listExternalVncHistory: () => ipcRenderer.invoke('viewer:list-external-vnc-history'),
+    removeExternalVncHistory: (historyId) => ipcRenderer.invoke('viewer:remove-external-vnc-history', historyId),
+    getExternalVncCredential: (sessionId) => ipcRenderer.invoke('viewer:get-external-vnc-credential', sessionId),
+    setExternalVncCredential: (request) => ipcRenderer.invoke('viewer:set-external-vnc-credential', request),
+    clearExternalVncCredential: (request) => ipcRenderer.invoke('viewer:clear-external-vnc-credential', request),
+    recordExternalVncConnection: (sessionId) => ipcRenderer.invoke('viewer:record-external-vnc-connection', sessionId),
     getExternalVncSession: (sessionId) => ipcRenderer.invoke('viewer:get-external-vnc-session', sessionId),
     listExternalVncSessions: () => ipcRenderer.invoke('viewer:list-external-vnc-sessions'),
     closeExternalVncSession: (sessionId) => ipcRenderer.invoke('viewer:close-external-vnc-session', sessionId)
   },
   app: {
     getMetadata: () => ipcRenderer.invoke('app:get-metadata'),
+    getWelcomeVideo: () => ipcRenderer.invoke('app:get-welcome-video'),
     openWebMode: () => ipcRenderer.invoke('app:open-web-mode'),
     getWebModeState: () => ipcRenderer.invoke('app:get-web-mode-state'),
     stopWebMode: () => ipcRenderer.invoke('app:stop-web-mode'),

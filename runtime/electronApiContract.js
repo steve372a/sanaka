@@ -40,6 +40,9 @@ const electronApiContract = {
   },
   runtime: {
     detectQemu: { type: 'invoke', channel: 'runtime:detect-qemu' },
+    scanQemuDirectories: { type: 'invoke', channel: 'runtime:scan-qemu-directories' },
+    cancelQemuDirectoryScan: { type: 'invoke', channel: 'runtime:cancel-qemu-directory-scan' },
+    validateQemuDirectory: { type: 'invoke', channel: 'runtime:validate-qemu-directory' },
     getRuntimeEnvironment: { type: 'invoke', channel: 'runtime:get-environment' },
     getSharedFolderEnvironment: { type: 'invoke', channel: 'runtime:get-shared-folder-environment' },
     buildQemuArgList: { type: 'invoke', channel: 'runtime:build-qemu-arg-list' },
@@ -76,12 +79,19 @@ const electronApiContract = {
   },
   viewer: {
     createExternalVncSession: { type: 'invoke', channel: 'viewer:create-external-vnc-session' },
+    listExternalVncHistory: { type: 'invoke', channel: 'viewer:list-external-vnc-history' },
+    removeExternalVncHistory: { type: 'invoke', channel: 'viewer:remove-external-vnc-history' },
+    getExternalVncCredential: { type: 'invoke', channel: 'viewer:get-external-vnc-credential' },
+    setExternalVncCredential: { type: 'invoke', channel: 'viewer:set-external-vnc-credential' },
+    clearExternalVncCredential: { type: 'invoke', channel: 'viewer:clear-external-vnc-credential' },
+    recordExternalVncConnection: { type: 'invoke', channel: 'viewer:record-external-vnc-connection' },
     getExternalVncSession: { type: 'invoke', channel: 'viewer:get-external-vnc-session' },
     listExternalVncSessions: { type: 'invoke', channel: 'viewer:list-external-vnc-sessions' },
     closeExternalVncSession: { type: 'invoke', channel: 'viewer:close-external-vnc-session' }
   },
   app: {
     getMetadata: { type: 'invoke', channel: 'app:get-metadata' },
+    getWelcomeVideo: { type: 'invoke', channel: 'app:get-welcome-video' },
     openWebMode: { type: 'invoke', channel: 'app:open-web-mode' },
     getWebModeState: { type: 'invoke', channel: 'app:get-web-mode-state' },
     stopWebMode: { type: 'invoke', channel: 'app:stop-web-mode' },

@@ -7,6 +7,44 @@ export interface OpenedSakaFile {
   previewPath?: string;
   content: string;
   legacySingleFile?: boolean;
+  resources?: WebExternalResource[];
+}
+
+export interface WebExternalResource {
+  id: string;
+  field: string;
+  name: string;
+  kind: 'external';
+  mutable: false;
+}
+
+export interface WebFileEntry {
+  name: string;
+  path: string;
+  kind: 'file' | 'directory';
+  size: number;
+  modifiedAt: string | null;
+  exists?: boolean;
+}
+
+export interface WebFileListing {
+  machineRef: string;
+  directory: string;
+  entries: WebFileEntry[];
+}
+
+export interface SanakaWebApi {
+  isWebMode: true;
+  files: {
+    list: (machineRef: string, directory?: string) => Promise<WebFileListing>;
+    upload: (
+      machineRef: string,
+      directory: string,
+      file: File,
+      onProgress?: (percent: number) => void
+    ) => Promise<{ path: string; name: string; size: number }>;
+    downloadUrl: (machineRef: string, relativePath: string) => string;
+  };
 }
 
 export interface PickedPath {
@@ -121,6 +159,7 @@ export interface ExternalVncSession {
   updatedAt: string;
   lastError: string | null;
   hasPassword: boolean;
+  historyId?: string | null;
   activeConnections: number;
   websocketPath?: string;
   websocketUrl?: string | null;
@@ -132,7 +171,33 @@ export interface CreateExternalVncSessionRequest {
   address?: string;
   host?: string;
   port?: number;
+  historyId?: string;
   password?: string;
+}
+
+export interface ExternalVncHistoryEntry {
+  id: string;
+  host: string;
+  port: number;
+  displayAddress: string;
+  lastConnectedAt: string;
+  hasRememberedPassword: boolean;
+  passwordStorageAvailable: boolean;
+}
+
+export interface ExternalVncCredentialResult {
+  ok: boolean;
+  password?: string | null;
+  remembered?: boolean;
+  passwordStorageAvailable?: boolean;
+  error?: string;
+}
+
+export interface WelcomeVideoResult {
+  available: boolean;
+  url: string | null;
+  source: string | null;
+  version: string;
 }
 
 export interface SharedFolderConfig {
@@ -169,6 +234,11 @@ export interface QemuEnvironment {
   platform: string;
   arch: string;
   available: boolean;
+  source?: 'bundled' | 'auto-detected' | 'external-configured';
+  configuredExternalDir?: string;
+  effectiveRoot?: string | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
   availableSystemTargets: string[];
   accelerators: string[];
   installHint: string;
@@ -187,6 +257,31 @@ export interface QemuEnvironment {
     qemuImg: QemuBinaryAvailability;
     [key: string]: QemuBinaryAvailability;
   };
+}
+
+export interface QemuDirectoryCandidate {
+  path: string;
+  binaryPath: string | null;
+  version: string | null;
+  targets: string[];
+  source: 'system-scan' | 'manual';
+}
+
+export interface QemuDirectoryScanResult {
+  candidates: QemuDirectoryCandidate[];
+  roots: string[];
+  scannedDirectories: number;
+  skippedDirectories: number;
+  elapsedMs: number;
+  cancelled: boolean;
+  truncated: boolean;
+}
+
+export interface QemuDirectoryValidationResult {
+  ok: boolean;
+  candidate?: QemuDirectoryCandidate;
+  errorCode?: string | null;
+  errorMessage?: string | null;
 }
 
 export interface RuntimeSharedFolderState {
@@ -316,12 +411,14 @@ export interface RuntimeEvent {
     | 'machine-stopping'
     | 'machine-stopped'
     | 'machine-error'
-    | 'environment-updated';
+    | 'environment-updated'
+    | 'qemu-directory-scan-candidate';
   at: string;
   machineId?: string;
   state?: RuntimeMachineState | null;
   error?: string | null;
   environment?: QemuEnvironment;
+  candidate?: QemuDirectoryCandidate;
 }
 
 export interface StartMachineResult {
@@ -448,8 +545,25 @@ export interface ElectronApi {
     remove: (path: string) => Promise<unknown>;
     reorder: (paths: string[]) => Promise<unknown>;
   };
+  webWorkspace?: {
+    renameMachine: (payload: { machineRef: string; machineId: string; name: string }) => Promise<{
+      ok: true;
+      path: string;
+      title: string;
+      recents: unknown;
+    }>;
+    duplicateMachine: (payload: { machineRef: string; name: string }) => Promise<{
+      ok: true;
+      path: string;
+      machineId: string;
+      recents: unknown;
+    }>;
+  };
   runtime: {
     detectQemu: () => Promise<QemuEnvironment>;
+    scanQemuDirectories: () => Promise<QemuDirectoryScanResult>;
+    cancelQemuDirectoryScan: () => Promise<{ ok: true; cancelled: boolean }>;
+    validateQemuDirectory: (path: string) => Promise<QemuDirectoryValidationResult>;
     getRuntimeEnvironment: () => Promise<QemuEnvironment>;
     getSharedFolderEnvironment?: () => Promise<SharedFolderEnvironment>;
     buildQemuArgList?: (machine: import('../domain/schemas').SakaMachine) => Promise<{ args: QemuArgItem[] }>;
@@ -502,12 +616,19 @@ export interface ElectronApi {
   };
   viewer?: {
     createExternalVncSession?: (request: CreateExternalVncSessionRequest) => Promise<ExternalVncSession>;
+    listExternalVncHistory?: () => Promise<ExternalVncHistoryEntry[]>;
+    removeExternalVncHistory?: (historyId: string) => Promise<{ ok: boolean; error?: string }>;
+    getExternalVncCredential?: (sessionId: string) => Promise<ExternalVncCredentialResult>;
+    setExternalVncCredential?: (request: { sessionId: string; password: string; rememberPassword: boolean }) => Promise<{ ok: boolean; hasPassword?: boolean; rememberPassword?: boolean; error?: string }>;
+    clearExternalVncCredential?: (request: { sessionId: string; forgetRemembered?: boolean }) => Promise<{ ok: boolean; error?: string }>;
+    recordExternalVncConnection?: (sessionId: string) => Promise<{ ok: boolean; entry?: ExternalVncHistoryEntry; error?: string }>;
     getExternalVncSession?: (sessionId: string) => Promise<ExternalVncSession | null>;
     listExternalVncSessions?: () => Promise<ExternalVncSession[]>;
     closeExternalVncSession?: (sessionId: string) => Promise<{ ok: boolean; session?: ExternalVncSession; error?: string }>;
   };
   app: {
     getMetadata: () => Promise<AppMetadata>;
+    getWelcomeVideo?: () => Promise<WelcomeVideoResult>;
     openWebMode: () => Promise<WebModeState>;
     getWebModeState: () => Promise<WebModeState>;
     stopWebMode: () => Promise<{ ok: true }>;
@@ -522,6 +643,7 @@ export interface ElectronApi {
 declare global {
   interface Window {
     electronAPI: ElectronApi;
+    sanakaWebAPI?: SanakaWebApi;
   }
 }
 

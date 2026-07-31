@@ -321,6 +321,8 @@ while IFS= read -r binary; do
 done < <(find "$QEMU_BIN_DIR" -type f -perm -111 2>/dev/null)
 
 if [[ "$DO_ADHOC_SIGN" == "true" ]]; then
+  sanaka_log "embed_macos.adhoc_signing"
+
   while IFS= read -r dylib; do
     codesign --force --sign - "$dylib"
   done < <(find "$FRAMEWORKS_DIR" -maxdepth 1 -type f -name '*.dylib' | sort)
@@ -334,6 +336,8 @@ if [[ "$DO_ADHOC_SIGN" == "true" ]]; then
   done < <(find "$QEMU_BIN_DIR" -type f -perm -111 2>/dev/null)
 
   codesign --force --deep --sign - "$APP_PATH"
+  codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+  sanaka_log "embed_macos.signature_verified"
 fi
 
 echo

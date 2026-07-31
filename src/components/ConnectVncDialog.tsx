@@ -1,59 +1,102 @@
 import { useEffect, useState } from 'react';
 import { usePresence } from '../hooks/usePresence';
 import { useT } from '../hooks/useT';
-import type { ExternalVncSession } from '../types/electron';
+import type { CreateExternalVncSessionRequest, ExternalVncHistoryEntry, ExternalVncSession } from '../types/electron';
 
 interface ConnectVncDialogProps {
   open: boolean;
   onClose: () => void;
-  onConnected: (session: ExternalVncSession, password: string) => void;
+  onConnected: (session: ExternalVncSession) => void;
 }
 
 const NetworkIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: '24px', height: '24px', color: 'var(--primary-strong)' }}>
-    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-    <polyline points="7 10 12 15 17 10" />
-    <line x1="12" y1="15" x2="12" y2="3" />
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="4" width="18" height="13" rx="2" />
+    <path d="M8 21h8M12 17v4" />
   </svg>
 );
+
+const ClockIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7v5l3 2" />
+  </svg>
+);
+
+const LockIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="5" y="10" width="14" height="10" rx="2" />
+    <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+  </svg>
+);
+
+const TrashIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 10v6M14 10v6" />
+  </svg>
+);
+
+function formatLastConnected(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date);
+}
 
 export function ConnectVncDialog({ open, onClose, onConnected }: ConnectVncDialogProps) {
   const t = useT();
   const presence = usePresence(open);
   const [address, setAddress] = useState('');
-  const [password, setPassword] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [history, setHistory] = useState<ExternalVncHistoryEntry[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [errorKey, setErrorKey] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     if (!open) {
       setAddress('');
-      setPassword('');
-      setSubmitting(false);
+      setHistory([]);
+      setLoadingHistory(false);
+      setSubmittingId(null);
       setErrorKey(null);
+      return () => undefined;
     }
+    setLoadingHistory(true);
+    const listHistory = window.electronAPI?.viewer?.listExternalVncHistory;
+    if (!listHistory) {
+      setHistory([]);
+      setLoadingHistory(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+    void listHistory()
+      .then((entries) => {
+        if (!cancelled) setHistory(Array.isArray(entries) ? entries : []);
+      })
+      .catch(() => {
+        if (!cancelled) setHistory([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingHistory(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (submitting) return;
-
-    const trimmedAddress = address.trim();
-    if (!trimmedAddress) {
-      setErrorKey('viewer.errorEmptyAddress');
-      return;
-    }
-
-    const trimmedPassword = password.trim();
-    setSubmitting(true);
+  const connect = async (request: CreateExternalVncSessionRequest, pendingId: string) => {
+    if (submittingId) return;
+    setSubmittingId(pendingId);
     setErrorKey(null);
-
     try {
-      const session = await window.electronAPI.viewer!.createExternalVncSession!({
-        address: trimmedAddress,
-        password: trimmedPassword || undefined
-      });
-      onConnected(session, trimmedPassword);
+      const session = await window.electronAPI.viewer!.createExternalVncSession!(request);
+      onConnected(session);
     } catch (error) {
       const message = error instanceof Error ? error.message.trim() : String(error || '').trim();
       const lowered = message.toLowerCase();
@@ -65,20 +108,33 @@ export function ConnectVncDialog({ open, onClose, onConnected }: ConnectVncDialo
         setErrorKey('viewer.errorConnectFailed');
       }
     } finally {
-      setSubmitting(false);
+      setSubmittingId(null);
     }
   };
 
-  if (!presence.mounted) {
-    return null;
-  }
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const trimmedAddress = address.trim();
+    if (!trimmedAddress) {
+      setErrorKey('viewer.errorEmptyAddress');
+      return;
+    }
+    await connect({ address: trimmedAddress }, 'manual');
+  };
+
+  const handleRemoveHistory = async (historyId: string) => {
+    const result = await window.electronAPI.viewer?.removeExternalVncHistory?.(historyId).catch(() => null);
+    if (result?.ok) {
+      setHistory((current) => current.filter((entry) => entry.id !== historyId));
+    }
+  };
+
+  if (!presence.mounted) return null;
+
+  const busy = submittingId !== null;
 
   return (
-    <div
-      className={presence.visible ? 'modal-backdrop modal-backdrop--visible' : 'modal-backdrop'}
-      role="presentation"
-      onClick={onClose}
-    >
+    <div className={presence.visible ? 'modal-backdrop modal-backdrop--visible' : 'modal-backdrop'} role="presentation" onClick={onClose}>
       <div
         className={presence.visible ? 'modal-card modal-card--visible connect-vnc-dialog' : 'modal-card connect-vnc-dialog'}
         role="dialog"
@@ -86,64 +142,99 @@ export function ConnectVncDialog({ open, onClose, onConnected }: ConnectVncDialo
         aria-labelledby="connect-vnc-title"
         onClick={(event) => event.stopPropagation()}
       >
-        <h2 id="connect-vnc-title" style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '0 0 10px 0', fontSize: '1.2rem' }}>
-          <NetworkIcon />
-          {t('viewer.title')}
-        </h2>
-        <p className="muted" style={{ margin: '0 0 18px 0', fontSize: '0.86rem', lineHeight: '1.5' }}>
-          {t('viewer.subtitle')}
-        </p>
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <label className="field" htmlFor="connect-vnc-address" style={{ width: '100%' }}>
+        <header className="connect-vnc-dialog__header">
+          <span className="connect-vnc-dialog__title-icon"><NetworkIcon /></span>
+          <span>
+            <h2 id="connect-vnc-title">{t('viewer.title')}</h2>
+            <p>{t('viewer.subtitle')}</p>
+          </span>
+        </header>
+
+        <form className="connect-vnc-dialog__form" onSubmit={handleSubmit}>
+          <label className="field" htmlFor="connect-vnc-address">
             <span className="field__label">{t('viewer.addressLabel')}</span>
-            <input
-              id="connect-vnc-address"
-              type="text"
-              value={address}
-              onChange={(e) => {
-                setAddress(e.target.value);
-                if (errorKey) setErrorKey(null);
-              }}
-              placeholder={t('viewer.addressPlaceholder')}
-              autoFocus
-              autoComplete="off"
-              spellCheck={false}
-              disabled={submitting}
-            />
+            <span className="connect-vnc-dialog__address-row">
+              <input
+                id="connect-vnc-address"
+                type="text"
+                value={address}
+                onChange={(event) => {
+                  setAddress(event.target.value);
+                  if (errorKey) setErrorKey(null);
+                }}
+                placeholder={t('viewer.addressPlaceholder')}
+                autoFocus
+                autoComplete="off"
+                spellCheck={false}
+                disabled={busy}
+              />
+              <button className="button button--primary" type="submit" disabled={busy}>
+                {submittingId === 'manual' ? t('viewer.connecting') : t('viewer.connect')}
+              </button>
+            </span>
           </label>
-          <p className="muted" style={{ margin: '-8px 0 0 0', fontSize: '0.76rem', lineHeight: '1.5' }}>
-            {t('viewer.addressHint')}
-          </p>
-          <label className="field" htmlFor="connect-vnc-password" style={{ width: '100%' }}>
-            <span className="field__label">{t('viewer.passwordLabel')}</span>
-            <input
-              id="connect-vnc-password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={t('viewer.passwordPlaceholder')}
-              autoComplete="off"
-              spellCheck={false}
-              disabled={submitting}
-            />
-          </label>
-          {errorKey && (
-            <p className="connect-vnc-dialog__error" role="alert">
-              {t(errorKey)}
-            </p>
-          )}
-          <p className="muted" style={{ margin: '0', fontSize: '0.76rem', lineHeight: '1.5' }}>
-            {t('viewer.externalSessionNote')}
-          </p>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }}>
-            <button className="button button--secondary" type="button" onClick={onClose} disabled={submitting}>
-              {t('app.cancel')}
-            </button>
-            <button className="button button--primary" type="submit" disabled={submitting}>
-              {submitting ? t('viewer.connecting') : t('viewer.connect')}
-            </button>
-          </div>
+          <p className="connect-vnc-dialog__hint">{t('viewer.addressHint')}</p>
         </form>
+
+        {errorKey && <p className="connect-vnc-dialog__error" role="alert">{t(errorKey)}</p>}
+
+        <section className="connect-vnc-dialog__history" aria-labelledby="connect-vnc-history-title">
+          <div className="connect-vnc-dialog__section-title">
+            <span id="connect-vnc-history-title">{t('viewer.recentConnections')}</span>
+            {history.length > 0 && <small>{history.length}</small>}
+          </div>
+          {loadingHistory ? (
+            <div className="connect-vnc-dialog__empty">{t('viewer.loadingHistory')}</div>
+          ) : history.length === 0 ? (
+            <div className="connect-vnc-dialog__empty">
+              <ClockIcon />
+              <span>{t('viewer.noRecentConnections')}</span>
+            </div>
+          ) : (
+            <div className="connect-vnc-dialog__history-list">
+              {history.map((entry) => (
+                <div className="connect-vnc-history-item" key={entry.id}>
+                  <button
+                    className="connect-vnc-history-item__main"
+                    type="button"
+                    onClick={() => void connect({ historyId: entry.id }, entry.id)}
+                    disabled={busy}
+                  >
+                    <span className="connect-vnc-history-item__icon"><NetworkIcon /></span>
+                    <span className="connect-vnc-history-item__copy">
+                      <strong>{entry.displayAddress}</strong>
+                      <small>{formatLastConnected(entry.lastConnectedAt)}</small>
+                    </span>
+                    {entry.hasRememberedPassword && (
+                      <span className="connect-vnc-history-item__saved" title={t('viewer.savedPassword')}>
+                        <LockIcon />
+                        {t('viewer.savedPassword')}
+                      </span>
+                    )}
+                    {submittingId === entry.id && <span className="connect-vnc-history-item__status">{t('viewer.connecting')}</span>}
+                  </button>
+                  <button
+                    className="connect-vnc-history-item__remove"
+                    type="button"
+                    title={t('viewer.removeHistory')}
+                    aria-label={t('viewer.removeHistory')}
+                    onClick={() => void handleRemoveHistory(entry.id)}
+                    disabled={busy}
+                  >
+                    <TrashIcon />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <footer className="connect-vnc-dialog__footer">
+          <p>{t('viewer.externalSessionNote')}</p>
+          <button className="button button--secondary" type="button" onClick={onClose} disabled={busy}>
+            {t('app.cancel')}
+          </button>
+        </footer>
       </div>
     </div>
   );

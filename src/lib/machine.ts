@@ -80,6 +80,9 @@ export function makeAudioHint(frontend: DisplayFrontend, backendHint: string, au
 }
 
 function toFileUrl(filePath: string) {
+  if (/^https?:\/\//i.test(filePath) || filePath.startsWith('/api/')) {
+    return filePath;
+  }
   const normalized = filePath.replace(/\\/g, '/');
   return new URL(`file://${normalized.startsWith('/') ? '' : '/'}${normalized}`).toString();
 }
@@ -132,7 +135,7 @@ export function makeWorkspaceMachineItems(recents: RecentEntry[], draft: Machine
     return current;
   }, []);
 
-  if (!draft) {
+  if (!draft?.filePath) {
     return items;
   }
 
@@ -170,7 +173,12 @@ export function resolveWorkspaceSelection(items: WorkspaceMachineItem[], pathnam
   const params = new URLSearchParams(search);
   const routePath = params.get('path');
   const pathSegments = pathname.split('/').filter(Boolean);
+  const isUnsavedBuilder = pathSegments[0] === 'machines' && pathSegments[1] === 'new' && !draft?.filePath;
   const routeMachineId = pathSegments[0] === 'machines' && pathSegments[1] && pathSegments[1] !== 'new' ? decodeURIComponent(pathSegments[1]) : null;
+
+  if (isUnsavedBuilder) {
+    return { items, primary: null };
+  }
 
   const primary =
     (routePath ? items.find((item) => item.path === routePath) : null) ??

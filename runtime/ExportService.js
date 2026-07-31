@@ -57,6 +57,31 @@ async function ensureUniqueOutputPath(targetDir, desiredName) {
   return candidate;
 }
 
+function isPathInside(rootPath, targetPath) {
+  const relative = path.relative(rootPath, targetPath);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+async function resolveRestrictedBundleFile(bundlePath, sourcePath, allowedTopLevel) {
+  const [realBundlePath, realSourcePath] = await Promise.all([
+    fsPromises.realpath(bundlePath),
+    fsPromises.realpath(sourcePath)
+  ]);
+  if (!isPathInside(realBundlePath, realSourcePath)) {
+    throw new Error('Web export cannot read files outside the machine bundle.');
+  }
+  const relativePath = path.relative(realBundlePath, realSourcePath);
+  const topLevel = relativePath.split(path.sep)[0];
+  if (allowedTopLevel && topLevel !== allowedTopLevel) {
+    throw new Error(`Web export can only read files from ${allowedTopLevel}.`);
+  }
+  const stats = await fsPromises.stat(realSourcePath);
+  if (!stats.isFile()) {
+    throw new Error('The selected export source is not a file.');
+  }
+  return realSourcePath;
+}
+
 function normalizeSourcePaths(sourcePath) {
   const absolutePath = path.resolve(sourcePath);
   if (path.basename(absolutePath).toLowerCase() === MACHINE_CONFIG_FILE) {
@@ -182,9 +207,13 @@ class ExportService {
         throw Object.assign(new Error('Source machine bundle is missing.'), { code: 'ENOENT' });
       }
 
+      const safeConfigPath = options.restrictToBundle
+        ? await resolveRestrictedBundleFile(bundlePath, configPath, null)
+        : configPath;
+
       await fsPromises.access(options.targetDir, fs.constants.W_OK);
 
-      const rawConfig = await fsPromises.readFile(configPath, 'utf8');
+      const rawConfig = await fsPromises.readFile(safeConfigPath, 'utf8');
       const machine = parseToml(rawConfig);
       if (machine.kind !== 'machine') {
         throw new Error('Only machine bundles can be exported.');
@@ -224,15 +253,21 @@ class ExportService {
         }
       }
 
-      const isoSourcePath = options.includeIso ? resolveMediaPath(bundlePath, machine.media?.iso || '') : null;
+      let isoSourcePath = options.includeIso ? resolveMediaPath(bundlePath, machine.media?.iso || '') : null;
+      if (isoSourcePath && options.restrictToBundle) {
+        isoSourcePath = await resolveRestrictedBundleFile(bundlePath, isoSourcePath, MACHINE_MEDIA_DIRECTORY);
+      }
       const copyItems = [];
 
       if (previewExists) {
-        const stats = await fsPromises.stat(previewSourcePath);
+        const safePreviewSourcePath = options.restrictToBundle
+          ? await resolveRestrictedBundleFile(bundlePath, previewSourcePath, null)
+          : previewSourcePath;
+        const stats = await fsPromises.stat(safePreviewSourcePath);
         copyItems.push({
           phase: 'copying_config',
           detail: MACHINE_PREVIEW_FILE,
-          source: previewSourcePath,
+          source: safePreviewSourcePath,
           target: path.join(tempBundlePath, MACHINE_PREVIEW_FILE),
           size: stats.size
         });
@@ -257,11 +292,14 @@ class ExportService {
         if (!(await pathExists(item.source))) {
           throw new Error(`Disk image not found: ${item.source}`);
         }
-        const stats = await fsPromises.stat(item.source);
+        const safeDiskSource = options.restrictToBundle
+          ? await resolveRestrictedBundleFile(bundlePath, item.source, MACHINE_DISKS_DIRECTORY)
+          : item.source;
+        const stats = await fsPromises.stat(safeDiskSource);
         copyItems.push({
           phase: 'copying_disks',
           detail: item.targetName,
-          source: item.source,
+          source: safeDiskSource,
           target: path.join(tempDisksPath, item.targetName),
           size: stats.size
         });
@@ -420,7 +458,7 @@ class ExportService {
               '            full = os.path.join(root, name)',
               '            rel = os.path.relpath(full, source_parent)',
               '            archive.write(full, rel)'
-            ].join(';'),
+            ].join('\n'),
             sourceParent,
             sourceName,
             destinationZip

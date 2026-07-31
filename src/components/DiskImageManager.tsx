@@ -2,6 +2,8 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Checkbox } from './Checkbox';
 import { Toast } from './Toast';
+import { WebFilePickerDialog } from './WebFileBrowser';
+import { getWebResourceDisplayName, isExternalWebResource, isWebMode, showWebModificationNotice } from '../lib/webMode';
 import { useT } from '../hooks/useT';
 import type { DiskInterface } from '../domain/schemas';
 
@@ -59,6 +61,7 @@ interface DiskImageManagerProps {
   onDisksChange: (disks: MachineDiskDraft[]) => void;
   defaultInterface: DiskInterface;
   bundlePath?: string;
+  rawQemuValues?: boolean;
 }
 
 interface DiskEditorState {
@@ -85,6 +88,7 @@ interface CustomSelectProps {
   options: SelectOption[];
   onChange: (value: string) => void;
   placeholder?: string;
+  rawValues?: boolean;
 }
 
 const ChevronDownIcon = () => (
@@ -99,7 +103,7 @@ const CheckIcon = () => (
   </svg>
 );
 
-function CustomSelect({ value, options, onChange, placeholder = '请选择' }: CustomSelectProps) {
+function CustomSelect({ value, options, onChange, placeholder = '请选择', rawValues = false }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const selectedOption = options.find(opt => opt.value === value);
@@ -128,7 +132,7 @@ function CustomSelect({ value, options, onChange, placeholder = '请选择' }: C
           <span className="disk-image-manager__checkmark">
             {option.value === value && <CheckIcon />}
           </span>
-          <span>{option.label}</span>
+          <span>{rawValues ? option.value : option.label}</span>
         </div>
       ))}
     </div>
@@ -140,7 +144,7 @@ function CustomSelect({ value, options, onChange, placeholder = '请选择' }: C
         className={`disk-image-manager__select-trigger ${isOpen ? 'disk-image-manager__select-trigger--open' : ''}`}
         onClick={() => setIsOpen(!isOpen)}
       >
-        <span>{selectedOption?.label || placeholder}</span>
+        <span>{selectedOption ? (rawValues ? selectedOption.value : selectedOption.label) : placeholder}</span>
         <span className="disk-image-manager__select-arrow">
           <ChevronDownIcon />
         </span>
@@ -284,13 +288,14 @@ function buildEditorState(image: DiskImageInfo, disk?: MachineDiskDraft): DiskEd
   };
 }
 
-export function DiskImageManager({ isOpen, onClose, existingDisks, onDisksChange, defaultInterface, bundlePath }: DiskImageManagerProps) {
+export function DiskImageManager({ isOpen, onClose, existingDisks, onDisksChange, defaultInterface, bundlePath, rawQemuValues = false }: DiskImageManagerProps) {
   const t = useT();
   const [activeTab, setActiveTab] = useState<TabType>('import');
   const [importedImages, setImportedImages] = useState<DiskImageInfo[]>([]);
   const [expandedImageId, setExpandedImageId] = useState<string | null>(null);
   const [isVisible, setIsVisible] = useState(false);
   const [editorStates, setEditorStates] = useState<Record<string, DiskEditorState>>({});
+  const [webPickerOpen, setWebPickerOpen] = useState(false);
 
   // Create new image state
   const [newImageName, setNewImageName] = useState('');
@@ -375,14 +380,14 @@ export function DiskImageManager({ isOpen, onClose, existingDisks, onDisksChange
           const base: DiskImageInfo = {
             id: disk.id,
             path: disk.path,
-            name: disk.path.split(/[/\\]/).pop() || 'unnamed',
+            name: getWebResourceDisplayName(disk.path) || 'unnamed',
             format: disk.format || inferFormatFromPath(disk.path),
             virtualSize: fallbackCapacity.size,
             actualSize: 0,
             unit: fallbackCapacity.unit
           };
 
-          if (!disk.pending_create && resolvedPath) {
+          if (!isWebMode() && !disk.pending_create && resolvedPath) {
             try {
               const info = await window.electronAPI.disks.getInfo(resolvedPath);
               const virtualDisplay = toDisplayCapacity(info.virtualSize);
@@ -433,6 +438,14 @@ export function DiskImageManager({ isOpen, onClose, existingDisks, onDisksChange
   }, [existingDisks, bundlePath]);
 
   const handleImportImage = useCallback(async () => {
+    if (isWebMode()) {
+      if (!bundlePath) {
+        showWebModificationNotice();
+        return;
+      }
+      setWebPickerOpen(true);
+      return;
+    }
     const picked = await window.electronAPI.dialogs.pickDisk();
     if (!picked?.path) return;
 
@@ -466,7 +479,23 @@ export function DiskImageManager({ isOpen, onClose, existingDisks, onDisksChange
       }
     };
     onDisksChange([...existingDisks, newDisk]);
-  }, [existingDisks, onDisksChange, defaultInterface]);
+  }, [bundlePath, existingDisks, onDisksChange, defaultInterface]);
+
+  const handleWebDiskSelected = useCallback((relativePath: string) => {
+    const newDisk = {
+      id: `disk-${Date.now()}`,
+      path: relativePath,
+      format: inferFormatFromPath(relativePath),
+      interface: defaultInterface,
+      boot: existingDisks.length === 0,
+      readonly: false,
+      storage_mode: 'managed' as const,
+      source_path: '',
+      image_options: { compression: false, sparse: false, preallocate: false }
+    };
+    onDisksChange([...existingDisks, newDisk]);
+    setWebPickerOpen(false);
+  }, [defaultInterface, existingDisks, onDisksChange]);
 
   const handleAddLocalImages = useCallback(() => {
     const imagesToAdd = localImages.filter(img => selectedLocalImages.has(img.path));
@@ -533,6 +562,11 @@ export function DiskImageManager({ isOpen, onClose, existingDisks, onDisksChange
   }, [newImageName, newImageSize, newImageUnit, newImageFormat, existingDisks, onDisksChange, defaultInterface, newImagePreallocate]);
 
   const handleRemoveImage = useCallback((imageId: string) => {
+    const disk = existingDisks.find((entry) => entry.id === imageId);
+    if (isWebMode() && isExternalWebResource(disk?.path)) {
+      showWebModificationNotice();
+      return;
+    }
     setImportedImages(prev => prev.filter(img => img.id !== imageId));
     onDisksChange(existingDisks.filter(disk => disk.id !== imageId));
   }, [existingDisks, onDisksChange]);
@@ -557,6 +591,11 @@ export function DiskImageManager({ isOpen, onClose, existingDisks, onDisksChange
   }, [importedImages]);
 
   const applyImageOptions = useCallback((imageId: string) => {
+    const disk = existingDisks.find((entry) => entry.id === imageId);
+    if (isWebMode() && isExternalWebResource(disk?.path)) {
+      showWebModificationNotice();
+      return;
+    }
     const state = editorStates[imageId];
     if (!state) return;
     onDisksChange(existingDisks.map((disk) => (
@@ -580,6 +619,10 @@ export function DiskImageManager({ isOpen, onClose, existingDisks, onDisksChange
   }, [editorStates, existingDisks, onDisksChange, updateEditorState]);
 
   const handleResizeImage = useCallback(async (image: DiskImageInfo) => {
+    if (isWebMode()) {
+      showWebModificationNotice();
+      return;
+    }
     const resolvedPath = (image as DiskImageInfo & { resolvedPath?: string }).resolvedPath;
     if (!resolvedPath) {
       updateEditorState(image.id, (current) => ({ ...current, error: '当前镜像还没有真实文件，暂时不能调整大小。', success: undefined }));
@@ -632,6 +675,10 @@ export function DiskImageManager({ isOpen, onClose, existingDisks, onDisksChange
   }, [editorStates, updateEditorState, showToast, t]);
 
   const handleConvertImage = useCallback(async (image: DiskImageInfo) => {
+    if (isWebMode()) {
+      showWebModificationNotice();
+      return;
+    }
     const resolvedPath = (image as DiskImageInfo & { resolvedPath?: string }).resolvedPath;
     if (!resolvedPath) {
       updateEditorState(image.id, (current) => ({ ...current, error: '当前镜像还没有真实文件，暂时不能转换格式。', success: undefined }));
@@ -691,6 +738,10 @@ export function DiskImageManager({ isOpen, onClose, existingDisks, onDisksChange
   }, [editorStates, existingDisks, onDisksChange, updateEditorState, showToast, t]);
 
   const handleReclaimSpace = useCallback(async (image: DiskImageInfo) => {
+    if (isWebMode()) {
+      showWebModificationNotice();
+      return;
+    }
     const resolvedPath = (image as DiskImageInfo & { resolvedPath?: string }).resolvedPath;
     if (!resolvedPath) {
       updateEditorState(image.id, (current) => ({ ...current, error: '当前镜像还没有真实文件，暂时不能回收空间。', success: undefined }));
@@ -921,6 +972,7 @@ export function DiskImageManager({ isOpen, onClose, existingDisks, onDisksChange
                     <CustomSelect
                       value={newImageFormat}
                       options={formatOptions}
+                      rawValues={rawQemuValues}
                       onChange={(value) => setNewImageFormat(value as ImageFormat)}
                     />
                   </div>
@@ -979,6 +1031,7 @@ export function DiskImageManager({ isOpen, onClose, existingDisks, onDisksChange
                         <div className="disk-image-item__actions">
                           <button
                             className="button button--ghost button--icon"
+                            aria-disabled={isWebMode() && isExternalWebResource(existingDisks.find((disk) => disk.id === image.id)?.path)}
                             onClick={(e) => {
                               e.stopPropagation();
                               handleRemoveImage(image.id);
@@ -1001,7 +1054,7 @@ export function DiskImageManager({ isOpen, onClose, existingDisks, onDisksChange
                             <div className="disk-image-item__info-grid">
                               <div className="info-row">
                                 <span className="info-label">{t('diskManager.details.path')}</span>
-                                <span className="info-value" title={image.path}>{image.path}</span>
+                                <span className="info-value" title={getWebResourceDisplayName(image.path)}>{getWebResourceDisplayName(image.path)}</span>
                               </div>
                               <div className="info-row">
                                 <span className="info-label">{t('diskManager.details.format')}</span>
@@ -1078,6 +1131,7 @@ export function DiskImageManager({ isOpen, onClose, existingDisks, onDisksChange
                                     <CustomSelect
                                       value={editorStates[image.id]?.convertFormat ?? image.format}
                                       options={formatOptions}
+                                      rawValues={rawQemuValues}
                                       onChange={(value) => updateEditorState(image.id, (current) => ({
                                         ...current,
                                         convertFormat: value as ImageFormat,
@@ -1190,6 +1244,16 @@ export function DiskImageManager({ isOpen, onClose, existingDisks, onDisksChange
           )}
         </div>
       </div>
+      {bundlePath && (
+        <WebFilePickerDialog
+          open={webPickerOpen}
+          machineRef={bundlePath}
+          directory="Disks"
+          accept=".qcow2,.qed,.qcow,.vmdk,.vhd,.vpc,.vdi,.img,.raw"
+          onSelect={handleWebDiskSelected}
+          onClose={() => setWebPickerOpen(false)}
+        />
+      )}
       <Toast
         message={toastMessage}
         visible={toastVisible}

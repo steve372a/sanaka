@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs/promises';
 import net from 'net';
 import os from 'os';
@@ -6,6 +6,7 @@ import path from 'path';
 import WebSocket from 'ws';
 import { ExternalVncViewerService } from './ExternalVncViewerService';
 import { WebModeService } from './WebModeService';
+import { WebWorkspaceService } from './WebWorkspaceService';
 
 async function fetchText(url) {
   const response = await fetch(url);
@@ -153,7 +154,7 @@ describe('WebModeService', () => {
     expect(payload.result.language).toBe('zh-CN');
   });
 
-  it('rewrites file urls through the local file proxy bridge script', async () => {
+  it('exposes sandbox file APIs without the legacy arbitrary host file proxy', async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sanaka-webmode-'));
     tempDirs.push(tempDir);
     await fs.writeFile(path.join(tempDir, 'web.html'), '<!doctype html><html><head></head><body></body></html>', 'utf8');
@@ -169,7 +170,76 @@ describe('WebModeService', () => {
     const result = await fetchText(`${state.url}web-bridge.js`);
 
     expect(result.status).toBe(200);
-    expect(result.text).toContain("/api/file?url=");
+    expect(result.text).toContain('/api/workspace/files?');
+    expect(result.text).toContain('/api/workspace/upload?');
+    expect(result.text).not.toContain('/api/file?url=');
+  });
+
+  it('uploads, lists, and downloads files only through a registered machine sandbox', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sanaka-webmode-files-'));
+    tempDirs.push(root);
+    const bundlePath = path.join(root, 'Machine.saka');
+    await fs.mkdir(path.join(bundlePath, 'Media'), { recursive: true });
+    await fs.mkdir(path.join(bundlePath, 'Disks'), { recursive: true });
+    await fs.writeFile(path.join(bundlePath, 'machine.svm'), 'kind = "machine"\n', 'utf8');
+    const workspace = new WebWorkspaceService({ maxUploadBytes: 1024 });
+    const machineRef = workspace.registerMachinePath(bundlePath);
+    const service = new WebModeService({ host: '127.0.0.1', webWorkspaceService: workspace });
+    services.push(service);
+    const state = await service.start();
+
+    const uploadQuery = new URLSearchParams({ machine: machineRef, directory: 'Media', name: 'installer.iso' });
+    const uploadResponse = await fetch(`${state.url}api/workspace/upload?${uploadQuery}`, {
+      method: 'POST',
+      body: Buffer.from('image-data')
+    });
+    expect(uploadResponse.status).toBe(201);
+
+    const listQuery = new URLSearchParams({ machine: machineRef, directory: 'Media' });
+    const listResponse = await fetch(`${state.url}api/workspace/files?${listQuery}`);
+    const listing = await listResponse.json();
+    expect(listing.result.entries).toEqual([
+      expect.objectContaining({ name: 'installer.iso', path: 'Media/installer.iso', kind: 'file', size: 10 })
+    ]);
+
+    const downloadQuery = new URLSearchParams({ machine: machineRef, path: 'Media/installer.iso' });
+    const downloadResponse = await fetch(`${state.url}api/workspace/download?${downloadQuery}`);
+    expect(downloadResponse.status).toBe(200);
+    expect(await downloadResponse.text()).toBe('image-data');
+
+    const escapeQuery = new URLSearchParams({ machine: machineRef, path: '../machine.svm' });
+    expect((await fetch(`${state.url}api/workspace/download?${escapeQuery}`)).status).toBe(403);
+    expect((await fetch(`${state.url}api/file?path=${encodeURIComponent(path.join(root, 'secret'))}`)).status).toBe(410);
+  });
+
+  it('downloads a completed web export only through its opaque token endpoint', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sanaka-webmode-export-'));
+    tempDirs.push(root);
+    const zipPath = path.join(root, 'Machine.zip');
+    await fs.writeFile(zipPath, 'zip-content');
+    const consumeDownload = vi.fn(async () => undefined);
+    const webExportService = {
+      resolveDownload: vi.fn(async (token) => token === 'download-token'
+        ? { path: zipPath, name: 'Machine.zip', size: 11 }
+        : null),
+      consumeDownload
+    };
+    const service = new WebModeService({
+      host: '127.0.0.1',
+      webExportService
+    });
+    services.push(service);
+    const state = await service.start();
+
+    const response = await fetch(`${state.url}api/workspace/exports/download-token`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('application/zip');
+    expect(response.headers.get('content-disposition')).toContain('Machine.zip');
+    expect(await response.text()).toBe('zip-content');
+    await vi.waitFor(() => expect(consumeDownload).toHaveBeenCalledWith('download-token'));
+
+    const missing = await fetch(`${state.url}api/workspace/exports/forged-token`);
+    expect(missing.status).toBe(404);
   });
 
   it('bridges an external VNC websocket session to a raw TCP target', async () => {

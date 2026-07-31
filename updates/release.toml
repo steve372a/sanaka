@@ -1,4 +1,4 @@
-version = "0.0.3-beta"
+version = "0.0.1"
 channel = "release"
 mandatory = false
 pub_date = "2026-06-05"

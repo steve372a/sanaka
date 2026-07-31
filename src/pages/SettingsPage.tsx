@@ -6,8 +6,10 @@ import { MaterialSelect, MaterialSelectField } from '../components/MaterialSelec
 import { Checkbox } from '../components/Checkbox';
 import { AccentColorPicker } from '../components/AccentColorPicker';
 import { AccentColorCustomDialog } from '../components/AccentColorCustomDialog';
+import { QemuExternalDirDialog } from '../components/QemuExternalDirDialog';
 import { useAppStore } from '../store/AppStore';
 import { useT } from '../hooks/useT';
+import { isWebMode as isSanakaWebMode, showWebModificationNotice } from '../lib/webMode';
 
 // Settings Icons
 const GlobeIcon = () => (
@@ -234,7 +236,7 @@ function SettingsDrawerSection({
 }
 
 export function SettingsPage() {
-  const { appMeta, settings, persistSettings, setTheme, importTemplateFromDialog, templates, updateTemplateCatalog, updateCurrentInfo, checkForUpdates } = useAppStore();
+  const { appMeta, settings, persistSettings, setTheme, setReduceMotion, importTemplateFromDialog, templates, updateTemplateCatalog, updateCurrentInfo, checkForUpdates, runtimeEnvironment } = useAppStore();
   const t = useT();
   const isWebMode = typeof window !== 'undefined' && window.location.protocol !== 'file:';
   const [params, setParams] = useSearchParams();
@@ -244,6 +246,7 @@ export function SettingsPage() {
   const [checkMessage, setCheckMessage] = useState<string | null>(null);
   const [templateImportMessage, setTemplateImportMessage] = useState<string | null>(null);
   const [accentColorDialogOpen, setAccentColorDialogOpen] = useState(false);
+  const [qemuExternalDirDialogOpen, setQemuExternalDirDialogOpen] = useState(false);
 
   useEffect(() => {
     const nextTab = params.get('tab');
@@ -304,6 +307,35 @@ export function SettingsPage() {
     );
   };
 
+  const handleOpenQemuExternalDir = () => {
+    if (isSanakaWebMode()) {
+      showWebModificationNotice();
+      return;
+    }
+    setQemuExternalDirDialogOpen(true);
+  };
+
+  const handleApplyQemuExternalDir = async (externalDir: string) => {
+    await patchSettings({ qemu: { ...settings.qemu, externalDir } });
+    setQemuExternalDirDialogOpen(false);
+    await window.electronAPI.runtime.detectQemu();
+  };
+
+  const handleClearQemuExternalDir = async () => {
+    if (isSanakaWebMode()) {
+      showWebModificationNotice();
+      return;
+    }
+    await handleApplyQemuExternalDir('');
+  };
+
+  const qemuVersion = Object.values(runtimeEnvironment?.binaries || {}).find((binary) => binary.found && binary.version)?.version || t('settings.qemuVersionUnknown');
+  const qemuSource = runtimeEnvironment?.source === 'external-configured'
+    ? t('settings.qemuSourceExternal')
+    : runtimeEnvironment?.source === 'bundled'
+      ? t('settings.qemuSourceBundled')
+      : t('settings.qemuSourceAuto');
+
   return (
     <div className="page page--settings">
       <div className="workspace-header">
@@ -356,6 +388,23 @@ export function SettingsPage() {
                   onOpenCustom={() => setAccentColorDialogOpen(true)}
                 />
               </div>
+              <div className="field">
+                <span className="field__label">{t('settings.motion')}</span>
+                <label className={settings.reduceMotion ? 'settings-motion-option settings-motion-option--enabled' : 'settings-motion-option'}>
+                  <span className="settings-motion-option__copy">
+                    <strong>{t('settings.reduceMotion')}</strong>
+                    <small>{t('settings.reduceMotionDescription')}</small>
+                  </span>
+                  <input
+                    aria-label={t('settings.reduceMotion')}
+                    checked={settings.reduceMotion}
+                    className="settings-motion-option__input"
+                    type="checkbox"
+                    onChange={(event) => void setReduceMotion(event.target.checked)}
+                  />
+                  <span className="ios-toggle__track" aria-hidden="true"><span className="ios-toggle__thumb" /></span>
+                </label>
+              </div>
               <AccentColorCustomDialog
                 open={accentColorDialogOpen}
                 value={settings.accentColor}
@@ -389,6 +438,25 @@ export function SettingsPage() {
                   <div className="info-panel">
                     <strong>VNC</strong>
                     <p>{t('settings.displayVnc')}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="field">
+                <span className="field__label">{t('settings.qemuExternalDirTitle')}</span>
+                <div className="info-panel">
+                  <strong>{qemuSource}</strong>
+                  <p>{runtimeEnvironment?.effectiveRoot || settings.qemu.externalDir || t('settings.qemuPathUnavailable')}</p>
+                  <small className="field__hint">{qemuVersion}</small>
+                  {runtimeEnvironment?.errorMessage ? <p className="status-text status-text--danger">{runtimeEnvironment.errorMessage}</p> : null}
+                  <div className="action-row">
+                    <button className="button button--secondary" type="button" onClick={handleOpenQemuExternalDir}>
+                      {t('settings.qemuExternalDirConfigure')}
+                    </button>
+                    {settings.qemu.externalDir ? (
+                      <button className="button button--ghost" type="button" onClick={() => void handleClearQemuExternalDir()}>
+                        {t('settings.qemuExternalDirUseAuto')}
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -486,6 +554,11 @@ export function SettingsPage() {
                 onChange={(checked) => void patchSettings({ experimental: { ...settings.experimental, protocolInspector: checked } })}
                 label={t('settings.experimentalInspector')}
               />
+              <Checkbox
+                checked={settings.experimental.rawQemuValues}
+                onChange={(checked) => void patchSettings({ experimental: { ...settings.experimental, rawQemuValues: checked } })}
+                label={t('settings.experimentalRawQemuValues')}
+              />
                 </SectionCard>
               ) : null}
 
@@ -530,6 +603,12 @@ export function SettingsPage() {
           );
         })}
       </div>
+      <QemuExternalDirDialog
+        open={qemuExternalDirDialogOpen}
+        initialPath={settings.qemu.externalDir}
+        onApply={(externalDir) => void handleApplyQemuExternalDir(externalDir)}
+        onClose={() => setQemuExternalDirDialogOpen(false)}
+      />
     </div>
   );
 }

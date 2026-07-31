@@ -1,0 +1,29 @@
+# Tasks
+
+- [ ] 扩展 `AppSettings` schema，新增应用级 QEMU 来源配置
+- [ ] 为设置默认值补齐 `qemu.externalDir`
+- [ ] 扩展 `src/types/electron.d.ts` 的 runtime environment 类型，加入来源、根目录和错误字段
+- [ ] 扩展 settings IPC，使 renderer 能保存和读取外部 QEMU 目录配置
+- [ ] 给 main/runtime 增加“严格外部目录模式”的 detector 入口
+- [ ] 重构 `QemuDetector`，支持：
+- [ ] `externalDir == ""` 时沿用现有行为
+- [ ] `externalDir != ""` 时只查用户指定目录
+- [ ] 为 `QemuDetector` 增加来源判定逻辑
+- [ ] 为 `QemuDetector` 增加结构化错误码和用户错误消息
+- [ ] 调整版本读取逻辑，`--version` 失败时返回 `version = null`，不直接判死
+- [ ] 扩展 `RuntimeManager.detectQemu()`，将 settings 参与探测
+- [ ] 扩展虚拟机启动前 runtime 校验，外部目录无效时直接失败
+- [ ] 调整启动失败错误映射，优先展示外部 QEMU 目录错误
+- [ ] 在设置页 Runtime 区增加外部目录输入与选择按钮
+- [ ] 在设置页实现“清空目录即恢复自动探测”
+- [ ] 在设置页 Runtime 区增加当前生效 QEMU 状态卡片
+- [ ] 在 monitor / runtime detail 里增加当前生效路径、版本、命中来源
+- [ ] 为 Windows 外部目录解析补测试
+- [ ] 为 macOS 外部目录解析补测试
+- [ ] 为 Linux 外部目录解析补测试
+- [ ] 为“外部目录无效且不回退”补测试
+- [ ] 为“清空目录后恢复自动探测”补测试
+- [ ] 为“设置页显示来源/路径/版本/错误”补测试
+- [ ] 跑通 `npm run typecheck`
+- [ ] 跑通 `npm test`
+- [ ] 跑通 `npm run build`

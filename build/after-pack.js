@@ -103,9 +103,10 @@ async function embedWindowsQemu(context) {
   validateWindowsQemuDir(qemuDir);
 
   const resourcesDir = path.join(context.appOutDir, 'resources');
-  const targetQemuDir = path.join(resourcesDir, 'qemu');
+  const targetQemuRootDir = path.join(resourcesDir, 'qemu');
+  const targetQemuDir = path.join(targetQemuRootDir, 'bin');
 
-  await fsp.rm(targetQemuDir, { recursive: true, force: true });
+  await fsp.rm(targetQemuRootDir, { recursive: true, force: true });
   await fsp.mkdir(targetQemuDir, { recursive: true });
 
   for (const binary of WINDOWS_QEMU_SYSTEM_TARGETS) {
@@ -126,17 +127,17 @@ async function embedWindowsQemu(context) {
     await fsp.copyFile(path.join(qemuDir, entry.name), path.join(targetQemuDir, entry.name));
   }
 
-  await copyIfExists(path.join(qemuDir, 'share'), path.join(targetQemuDir, 'share'));
-  await copyIfExists(path.join(qemuDir, 'lib'), path.join(targetQemuDir, 'lib'));
+  await copyIfExists(path.join(qemuDir, 'share'), path.join(targetQemuRootDir, 'share'));
+  await copyIfExists(path.join(qemuDir, 'lib'), path.join(targetQemuRootDir, 'lib'));
 
   await Promise.all([
-    fsp.rm(path.join(targetQemuDir, 'share', 'doc'), { recursive: true, force: true }),
-    fsp.rm(path.join(targetQemuDir, 'share', 'man'), { recursive: true, force: true }),
-    fsp.rm(path.join(targetQemuDir, 'share', 'icons'), { recursive: true, force: true }),
-    fsp.rm(path.join(targetQemuDir, 'share', 'applications'), { recursive: true, force: true })
+    fsp.rm(path.join(targetQemuRootDir, 'share', 'doc'), { recursive: true, force: true }),
+    fsp.rm(path.join(targetQemuRootDir, 'share', 'man'), { recursive: true, force: true }),
+    fsp.rm(path.join(targetQemuRootDir, 'share', 'icons'), { recursive: true, force: true }),
+    fsp.rm(path.join(targetQemuRootDir, 'share', 'applications'), { recursive: true, force: true })
   ]);
 
-  console.log(`[after-pack] Embedded Windows QEMU from ${qemuDir} into ${targetQemuDir}`);
+  console.log(`[after-pack] Embedded Windows QEMU from ${qemuDir} into ${targetQemuRootDir}`);
 }
 
 exports.default = async function afterPack(context) {

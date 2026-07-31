@@ -4,7 +4,12 @@ import { defaultTemplateCatalog } from './templates';
 export const defaultSettings: AppSettings = {
   language: 'zh-CN',
   theme: 'light',
+  reduceMotion: false,
+  showWelcomeOnStartup: true,
   defaultSaveDirectory: '',
+  qemu: {
+    externalDir: ''
+  },
   webMode: {
     port: 25895
   },
@@ -19,15 +24,17 @@ export const defaultSettings: AppSettings = {
   experimental: {
     brandedHero: true,
     advancedConsole: true,
-    protocolInspector: false
+    protocolInspector: false,
+    webMode: false,
+    rawQemuValues: false
   },
   accentColor: {
     mode: 'preset',
     preset: 'purple',
     custom: {
-      lightPrimary: '#C678FF',
+      lightPrimary: '#BCA0C9',
       lightSurface: '#F7EFFF',
-      darkPrimary: '#D4A3FF',
+      darkPrimary: '#D3ABF7',
       darkSurface: '#2E1F3F'
     },
     templates: []

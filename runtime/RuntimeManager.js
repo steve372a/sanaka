@@ -2,9 +2,11 @@ const fs = require('fs');
 const fsPromises = require('fs/promises');
 const net = require('net');
 const path = require('path');
+const { createHash } = require('crypto');
 const { spawn } = require('child_process');
 const { parse: parseToml } = require('smol-toml');
 const { QemuDetector } = require('./QemuDetector');
+const { QemuDirectoryScanner } = require('./QemuDirectoryScanner');
 const { RuntimeRegistry } = require('./RuntimeRegistry');
 const { QmpClient } = require('./QmpClient');
 const {
@@ -55,6 +57,14 @@ function getQmpAddress(platform, runtimeDir, machineId) {
     transport: 'unix',
     path: path.join(runtimeDir, 'qmp.sock')
   };
+}
+
+function toRuntimeDirectoryName(machineId) {
+  const value = String(machineId || 'machine');
+  if (/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value)) {
+    return value;
+  }
+  return `machine-${createHash('sha256').update(value).digest('hex').slice(0, 16)}`;
 }
 
 function normalizeBundlePath(machinePath) {
@@ -275,11 +285,14 @@ class RuntimeManager {
     this.emitEvent = options.emitEvent;
     this.platform = options.platform || process.platform;
     this.arch = options.arch || process.arch;
-    this.detector = options.detector || new QemuDetector({
-      platform: this.platform,
-      arch: this.arch,
-      resourcesPath: options.resourcesPath || process.resourcesPath
-    });
+    this.qemuDetectorFactory = options.qemuDetectorFactory || ((detectorOptions) => new QemuDetector(detectorOptions));
+    this.detector = options.detector || null;
+    this.loadSettings = options.loadSettings || (async () => null);
+    this.resourcesPath = options.resourcesPath || process.resourcesPath;
+    this.qemuDirectoryScannerFactory = options.qemuDirectoryScannerFactory || (() => new QemuDirectoryScanner({
+      platform: this.platform
+    }));
+    this.qemuScanController = null;
     this.registry = options.registry || new RuntimeRegistry();
     this.builder = options.builder || new QemuCommandBuilder();
     this.readClipboardText = options.readClipboardText || (() => '');
@@ -317,13 +330,86 @@ class RuntimeManager {
   }
 
   async detectQemu() {
-    this.environment = await this.detector.detect();
+    const detector = await this.#createDetector();
+    this.environment = await detector.detect();
     this.emitEvent(
       makeRuntimeEvent('environment-updated', {
         environment: this.environment
       })
     );
     return this.environment;
+  }
+
+  async scanQemuDirectories() {
+    this.cancelQemuDirectoryScan();
+    const controller = new AbortController();
+    this.qemuScanController = controller;
+    const scanner = this.qemuDirectoryScannerFactory();
+    try {
+      return await scanner.scan({
+        signal: controller.signal,
+        onCandidate: (candidate) => {
+          this.emitEvent(makeRuntimeEvent('qemu-directory-scan-candidate', { candidate }));
+        }
+      });
+    } finally {
+      if (this.qemuScanController === controller) {
+        this.qemuScanController = null;
+      }
+    }
+  }
+
+  cancelQemuDirectoryScan() {
+    if (!this.qemuScanController) return false;
+    this.qemuScanController.abort();
+    return true;
+  }
+
+  async validateQemuDirectory(directoryPath) {
+    const normalizedPath = String(directoryPath || '').trim();
+    if (!normalizedPath) {
+      return {
+        ok: false,
+        errorCode: 'EMPTY_PATH',
+        errorMessage: 'QEMU directory is required.'
+      };
+    }
+
+    const detector = this.qemuDetectorFactory({
+      platform: this.platform,
+      arch: this.arch,
+      resourcesPath: process.resourcesPath,
+      externalDir: normalizedPath
+    });
+    const environment = await detector.detect();
+    const candidates = Object.values(environment.binaries || {})
+      .filter((binary) => binary?.found)
+      .map((binary) => binary.path)
+      .filter(Boolean);
+    if (candidates.length === 0) {
+      return {
+        ok: false,
+        errorCode: 'QEMU_NOT_FOUND',
+        errorMessage: 'No supported QEMU executable was found in this directory.'
+      };
+    }
+
+    const preferredBinary = candidates.find((candidate) => /qemu-system-x86_64(?:\.exe)?$/i.test(candidate)) || candidates[0];
+    return {
+      ok: true,
+      candidate: {
+        path: normalizedPath,
+        binaryPath: preferredBinary,
+        version: Object.values(environment.binaries || {}).find((binary) => binary.path === preferredBinary)?.version || null,
+        targets: Object.entries(environment.binaries || {})
+          .filter(([, binary]) => binary?.found)
+          .map(([key]) => key)
+          .filter((key) => key !== 'qemuImg'),
+        source: 'manual'
+      },
+      errorCode: null,
+      errorMessage: null
+    };
   }
 
   async getRuntimeEnvironment() {
@@ -344,11 +430,12 @@ class RuntimeManager {
 
   async previewMachineCommand(machinePath) {
     const environment = await this.detectQemu();
+    this.#assertEnvironmentAvailable(environment);
     const { bundlePath, configPath } = normalizeBundlePath(machinePath);
     const content = await fsPromises.readFile(configPath, 'utf8');
     const machine = await normalizeMachinePaths(bundlePath, parseMachineConfig(content));
 
-    const runtimeDir = path.join(this.app.getPath('userData'), 'runtime-preview', machine.id);
+    const runtimeDir = path.join(this.app.getPath('userData'), 'runtime-preview', toRuntimeDirectoryName(machine.id));
     await fsPromises.mkdir(runtimeDir, { recursive: true });
     const proxiedMachine = await this.#resolveMachineLaunchPaths(machine, runtimeDir, null);
 
@@ -398,13 +485,16 @@ class RuntimeManager {
     };
   }
 
-  async getFullQemuCommand(machine) {
+  async getFullQemuCommand(machine, options = {}) {
     const environment = await this.detectQemu();
+    this.#assertEnvironmentAvailable(environment);
     const machineId = String(machine?.id || 'preview-machine');
-    const runtimeDir = path.join(this.app.getPath('userData'), 'runtime-preview', machineId);
+    const runtimeDir = path.join(this.app.getPath('userData'), 'runtime-preview', toRuntimeDirectoryName(machineId));
     await fsPromises.mkdir(runtimeDir, { recursive: true });
 
-    const proxiedMachine = await this.#resolveMachineLaunchPaths(machine, runtimeDir, null);
+    const proxiedMachine = options.resolvePaths === false
+      ? machine
+      : await this.#resolveMachineLaunchPaths(machine, runtimeDir, null);
 
     const qmpBase = getQmpAddress(this.platform, runtimeDir, machineId);
     if (qmpBase.transport === 'tcp') {
@@ -474,7 +564,7 @@ class RuntimeManager {
           clipboard: normalized
         }
       };
-      await this.#applyClipboardBridge(record, path.join(this.app.getPath('userData'), 'runtime', machine.id));
+      await this.#applyClipboardBridge(record, path.join(this.app.getPath('userData'), 'runtime', toRuntimeDirectoryName(machine.id)));
       this.registry.set(record);
       this.emitEvent(
         makeRuntimeEvent('machine-updated', {
@@ -493,6 +583,13 @@ class RuntimeManager {
 
   async startMachine(machinePath) {
     const environment = await this.detectQemu();
+    if (!environment?.available) {
+      return {
+        ok: false,
+        error: this.#makeEnvironmentUnavailableMessage(environment),
+        state: null
+      };
+    }
     const { bundlePath, configPath } = normalizeBundlePath(machinePath);
 
     let machine;
@@ -527,7 +624,7 @@ class RuntimeManager {
       };
     }
 
-    const runtimeDir = path.join(this.app.getPath('userData'), 'runtime', machine.id);
+    const runtimeDir = path.join(this.app.getPath('userData'), 'runtime', toRuntimeDirectoryName(machine.id));
     await fsPromises.mkdir(runtimeDir, { recursive: true });
     const pathProxyLogs = [];
     const proxiedMachine = await this.#resolveMachineLaunchPaths(machine, runtimeDir, (message) => {
@@ -829,7 +926,7 @@ class RuntimeManager {
       return { ok: false, error: `No ${drive} drive is available on this machine.` };
     }
 
-    const runtimeDir = path.join(this.app.getPath('userData'), 'runtime', machineId);
+    const runtimeDir = path.join(this.app.getPath('userData'), 'runtime', toRuntimeDirectoryName(machineId));
     await fsPromises.mkdir(runtimeDir, { recursive: true });
     const resolvedMediaPath = await this.#resolveLaunchPathForQemu(isoPath, runtimeDir, `change-media-${drive}`, (message) => {
       if (record.logStream) {
@@ -1514,6 +1611,27 @@ class RuntimeManager {
       }
     }
     return null;
+  }
+
+  async #createDetector() {
+    if (this.detector) return this.detector;
+    const settings = await this.loadSettings();
+    return this.qemuDetectorFactory({
+      platform: this.platform,
+      arch: this.arch,
+      resourcesPath: this.resourcesPath,
+      externalDir: settings?.qemu?.externalDir || ''
+    });
+  }
+
+  #makeEnvironmentUnavailableMessage(environment) {
+    return environment?.errorMessage || 'QEMU is not available on this system.';
+  }
+
+  #assertEnvironmentAvailable(environment) {
+    if (!environment?.available) {
+      throw new Error(this.#makeEnvironmentUnavailableMessage(environment));
+    }
   }
 
   #scheduleStopEscalation(record) {

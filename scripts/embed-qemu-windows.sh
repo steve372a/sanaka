@@ -23,9 +23,10 @@ if [[ ! -d "$APP_DIR" ]]; then
 fi
 
 RESOURCES_DIR="$APP_DIR/resources"
-TARGET_QEMU_DIR="$RESOURCES_DIR/qemu"
+TARGET_QEMU_ROOT_DIR="$RESOURCES_DIR/qemu"
+TARGET_QEMU_DIR="$TARGET_QEMU_ROOT_DIR/bin"
 
-rm -rf "$TARGET_QEMU_DIR"
+rm -rf "$TARGET_QEMU_ROOT_DIR"
 mkdir -p "$TARGET_QEMU_DIR"
 
 copy_if_exists() {
@@ -78,15 +79,15 @@ while IFS= read -r dll_path; do
   cp -f "$dll_path" "$TARGET_QEMU_DIR/$(basename "$dll_path")"
 done < <(find "$QEMU_DIR" -maxdepth 1 -type f \( -iname '*.dll' -o -iname 'zlib1.dll' \) | sort)
 
-copy_if_exists "$QEMU_DIR/share" "$TARGET_QEMU_DIR/share"
-copy_if_exists "$QEMU_DIR/lib" "$TARGET_QEMU_DIR/lib"
+copy_if_exists "$QEMU_DIR/share" "$TARGET_QEMU_ROOT_DIR/share"
+copy_if_exists "$QEMU_DIR/lib" "$TARGET_QEMU_ROOT_DIR/lib"
 
-rm -rf "$TARGET_QEMU_DIR/share/doc" \
-  "$TARGET_QEMU_DIR/share/man" \
-  "$TARGET_QEMU_DIR/share/icons" \
-  "$TARGET_QEMU_DIR/share/applications"
+rm -rf "$TARGET_QEMU_ROOT_DIR/share/doc" \
+  "$TARGET_QEMU_ROOT_DIR/share/man" \
+  "$TARGET_QEMU_ROOT_DIR/share/icons" \
+  "$TARGET_QEMU_ROOT_DIR/share/applications"
 
 echo
 sanaka_log "embed_windows.embedded_into" "$APP_DIR"
 sanaka_log "embed_windows.qemu_source" "$QEMU_DIR"
-sanaka_log "embed_windows.qemu_target" "$TARGET_QEMU_DIR"
+sanaka_log "embed_windows.qemu_target" "$TARGET_QEMU_ROOT_DIR"

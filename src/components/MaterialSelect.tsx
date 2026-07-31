@@ -10,12 +10,14 @@ export function MaterialSelect<T extends string>({
   label,
   value,
   options,
-  onChange
+  onChange,
+  rawValues = false
 }: {
   label: string;
   value: T;
   options: ReadonlyArray<MaterialSelectOption<T>>;
   onChange: (value: T) => void;
+  rawValues?: boolean;
 }) {
   const id = useId();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -157,7 +159,7 @@ export function MaterialSelect<T extends string>({
           <span className="material-select__check" aria-hidden="true">
             {option.value === value ? '✓' : ''}
           </span>
-          <span>{option.label}</span>
+          <span>{rawValues ? option.value : option.label}</span>
         </button>
       ))}
     </div>
@@ -209,7 +211,7 @@ export function MaterialSelect<T extends string>({
           }
         }}
       >
-        <span>{selected?.label ?? value}</span>
+        <span>{rawValues ? selected?.value ?? value : selected?.label ?? value}</span>
         <svg className="material-select__chevron" viewBox="0 0 24 24" aria-hidden="true">
           <path d="m7 10 5 5 5-5" />
         </svg>
@@ -225,18 +227,20 @@ export function MaterialSelectField<T extends string>({
   value,
   options,
   onChange,
-  hint
+  hint,
+  rawValues = false
 }: {
   label: string;
   value: T;
   options: ReadonlyArray<MaterialSelectOption<T>>;
   onChange: (value: T) => void;
   hint?: string;
+  rawValues?: boolean;
 }) {
   return (
     <div className="field">
       <span className="field__label">{label}</span>
-      <MaterialSelect label={label} value={value} options={options} onChange={onChange} />
+      <MaterialSelect label={label} value={value} options={options} onChange={onChange} rawValues={rawValues} />
       {hint ? <span className="field__hint">{hint}</span> : null}
     </div>
   );
