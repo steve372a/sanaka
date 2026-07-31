@@ -294,14 +294,6 @@ export function SettingsPage() {
     await window.electronAPI.runtime.detectQemu();
   };
 
-  const handleClearQemuExternalDir = async () => {
-    if (isSanakaWebMode()) {
-      showWebModificationNotice();
-      return;
-    }
-    await handleApplyQemuExternalDir('');
-  };
-
   const qemuVersion = Object.values(runtimeEnvironment?.binaries || {}).find((binary) => binary.found && binary.version)?.version || t('settings.qemuVersionUnknown');
   const qemuSource = runtimeEnvironment?.source === 'external-configured'
     ? t('settings.qemuSourceExternal')
@@ -395,21 +387,32 @@ export function SettingsPage() {
                   </label>
                   <div className="field">
                     <span className="field__label">{t('settings.qemuExternalDirTitle')}</span>
-                    <div className="info-panel">
-                      <strong>{qemuSource}</strong>
-                      <p>{runtimeEnvironment?.effectiveRoot || settings.qemu.externalDir || t('settings.qemuPathUnavailable')}</p>
-                      <small className="field__hint">{qemuVersion}</small>
-                      {runtimeEnvironment?.errorMessage ? <p className="status-text status-text--danger">{runtimeEnvironment.errorMessage}</p> : null}
-                      <div className="action-row">
-                        <button className="button button--secondary" type="button" onClick={handleOpenQemuExternalDir}>
+                    <div className="qemu-runtime-card">
+                      <div className="qemu-runtime-card__header">
+                        <span className="qemu-runtime-card__icon" aria-hidden="true"><CpuIcon /></span>
+                        <div className="qemu-runtime-card__identity">
+                          <span>{t('settings.qemuRuntimeCurrent')}</span>
+                          <strong>{qemuSource}</strong>
+                        </div>
+                        <span className={runtimeEnvironment?.available ? 'qemu-runtime-card__status qemu-runtime-card__status--ready' : 'qemu-runtime-card__status'}>
+                          <i aria-hidden="true" />
+                          {runtimeEnvironment?.available ? t('settings.qemuRuntimeAvailable') : t('settings.qemuRuntimeUnavailable')}
+                        </span>
+                      </div>
+                      <div className="qemu-runtime-card__path">
+                        <span>{t('settings.qemuRuntimePath')}</span>
+                        <code title={runtimeEnvironment?.effectiveRoot || settings.qemu.externalDir || t('settings.qemuPathUnavailable')}>
+                          {runtimeEnvironment?.effectiveRoot || settings.qemu.externalDir || t('settings.qemuPathUnavailable')}
+                        </code>
+                      </div>
+                      <div className="qemu-runtime-card__footer">
+                        <span className="qemu-runtime-card__version">{qemuVersion}</span>
+                        <button className="button button--secondary qemu-runtime-card__choose" type="button" onClick={handleOpenQemuExternalDir}>
+                          <FolderIcon />
                           {t('settings.qemuExternalDirConfigure')}
                         </button>
-                        {settings.qemu.externalDir ? (
-                          <button className="button button--ghost" type="button" onClick={() => void handleClearQemuExternalDir()}>
-                            {t('settings.qemuExternalDirUseAuto')}
-                          </button>
-                        ) : null}
                       </div>
+                      {runtimeEnvironment?.errorMessage ? <p className="qemu-runtime-card__error status-text status-text--danger">{runtimeEnvironment.errorMessage}</p> : null}
                     </div>
                   </div>
                 </SectionCard>

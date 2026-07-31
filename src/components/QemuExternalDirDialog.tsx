@@ -73,7 +73,7 @@ export function QemuExternalDirDialog({ open, initialPath, onApply, onClose }: Q
     setError(null);
     const trimmed = path.trim();
     if (!trimmed) {
-      onApply('');
+      setError(t('settings.qemuExternalDirErrorInvalid'));
       return;
     }
     try {
@@ -280,10 +280,10 @@ export function QemuExternalDirDialog({ open, initialPath, onApply, onClose }: Q
         </main>
 
         <footer className="qemu-external-dir-dialog__actions">
-          <span>{path.trim() ? t('settings.qemuExternalDirStrictHint') : t('settings.qemuExternalDirAutoHint')}</span>
+          <span>{t('settings.qemuExternalDirStrictHint')}</span>
           <div>
             <button type="button" className="button button--ghost" onClick={onClose}>{t('settings.qemuExternalDirCancel')}</button>
-            <button type="button" className="button button--primary" onClick={() => void handleApply()} disabled={checking || scanning}>
+            <button type="button" className="button button--primary" onClick={() => void handleApply()} disabled={checking || scanning || !path.trim()}>
               {checking ? t('settings.qemuExternalDirChecking') : t('settings.qemuExternalDirApply')}
             </button>
           </div>

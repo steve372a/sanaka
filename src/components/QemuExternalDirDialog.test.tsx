@@ -31,7 +31,6 @@ vi.mock('../hooks/useT', () => ({
       'settings.qemuExternalDirTargets': 'Targets',
       'settings.qemuExternalDirChecking': 'Validating…',
       'settings.qemuExternalDirStrictHint': 'No fallback.',
-      'settings.qemuExternalDirAutoHint': 'Automatic detection.',
       'settings.qemuExternalDirCancel': 'Cancel',
       'settings.qemuExternalDirApply': 'Apply',
       'settings.qemuExternalDirErrorInvalid': 'No working QEMU installation was found.',
@@ -163,6 +162,16 @@ describe('QemuExternalDirDialog', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('No working QEMU installation was found.');
     expect(screen.queryByText('raw backend error')).not.toBeInTheDocument();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it('does not allow an empty directory to restore automatic detection', () => {
+    installApi();
+    const onApply = vi.fn();
+    render(<QemuExternalDirDialog open initialPath="" onApply={onApply} onClose={() => undefined} />);
+
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+    expect(screen.queryByText('Automatic detection.')).not.toBeInTheDocument();
     expect(onApply).not.toHaveBeenCalled();
   });
 

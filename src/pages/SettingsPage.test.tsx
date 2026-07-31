@@ -192,6 +192,8 @@ describe('SettingsPage', () => {
 
     expect(drawer?.querySelector('.settings-drawer__trigger')).toHaveTextContent('文件');
     expect(drawer?.querySelector('.settings-drawer__trigger')).not.toHaveTextContent('默认配置');
+    expect(screen.queryByRole('button', { name: '恢复自动检测' })).not.toBeInTheDocument();
+    expect(chooseButton.closest('.qemu-runtime-card')).toBeInTheDocument();
   });
 
   it('shows the web mode experiment and original template artwork', async () => {
