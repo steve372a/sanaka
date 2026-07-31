@@ -184,6 +184,33 @@ describe('SettingsPage', () => {
     expect(screen.queryByDisplayValue('/Users/you/Documents/Sanaka')).not.toBeInTheDocument();
   });
 
+  it('keeps QEMU directory selection in the files drawer', async () => {
+    renderSettings('/settings?tab=files');
+
+    const chooseButton = await screen.findByRole('button', { name: '选择 QEMU 目录' });
+    const drawer = chooseButton.closest('.settings-drawer');
+
+    expect(drawer?.querySelector('.settings-drawer__trigger')).toHaveTextContent('文件');
+    expect(drawer?.querySelector('.settings-drawer__trigger')).not.toHaveTextContent('默认配置');
+  });
+
+  it('shows the web mode experiment and original template artwork', async () => {
+    renderSettings('/settings?tab=experimental');
+
+    expect(await screen.findByRole('checkbox', { name: '网页版' })).toBeInTheDocument();
+    expect(document.querySelectorAll('.template-os-icon').length).toBeGreaterThan(0);
+  });
+
+  it('shows five progress dots while checking for updates', async () => {
+    const user = userEvent.setup();
+    renderSettings('/settings?tab=update');
+
+    await user.click(await screen.findByRole('button', { name: '检查更新' }));
+
+    expect(screen.getByRole('button', { name: '检查中...' })).toBeDisabled();
+    expect(document.querySelectorAll('.update-settings__progress-dot')).toHaveLength(5);
+  });
+
   it('shows the default web mode port in desktop settings', async () => {
     renderSettings('/settings?tab=runtime');
 

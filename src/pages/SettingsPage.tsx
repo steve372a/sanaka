@@ -3,10 +3,10 @@ import { useSearchParams } from 'react-router-dom';
 import type { AppSettings, TemplateCatalogEntry } from '../domain/schemas';
 import { SectionCard } from '../components/Field';
 import { MaterialSelect, MaterialSelectField } from '../components/MaterialSelect';
-import { Checkbox } from '../components/Checkbox';
 import { AccentColorPicker } from '../components/AccentColorPicker';
 import { AccentColorCustomDialog } from '../components/AccentColorCustomDialog';
 import { QemuExternalDirDialog } from '../components/QemuExternalDirDialog';
+import { TemplateIcon } from '../components/TemplateIcon';
 import { useAppStore } from '../store/AppStore';
 import { useT } from '../hooks/useT';
 import { isWebMode as isSanakaWebMode, showWebModificationNotice } from '../lib/webMode';
@@ -96,38 +96,6 @@ const DownloadIcon = () => (
   </svg>
 );
 
-// Template OS icons (clean, proportion-correct SVG paths)
-const WindowsLogoIcon = () => (
-  <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
-    <path d="M2 2h9v9H2zM13 2h9v9h-9zM2 13h9v9H2zM13 13h9v9h-9z" />
-  </svg>
-);
-
-const LinuxIcon = () => (
-  <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
-    <path d="M12 2c-1.5 0-2.8.8-3.4 2.1-.4.8-.4 1.7-.1 2.5-.6.3-1.2.7-1.7 1.2-1.4 1.4-2.1 3.3-2.1 5.3 0 2.1.8 4 2.2 5.4.6.6 1.4 1 2.2 1.2-.1.3-.2.6-.2 1 0 1 .8 1.8 1.8 1.8s1.8-.8 1.8-1.8c0-.3-.1-.6-.2-.8.9-.2 1.6-.6 2.2-1.2 1.4-1.4 2.2-3.3 2.2-5.4 0-1.2-.3-2.3-.8-3.3-.5-1-1.2-1.8-2.1-2.4.3-.6.5-1.3.5-2C16.3 3.8 14.5 2 12 2zm0 1.8c1 0 1.8.8 1.8 1.8s-.8 1.8-1.8 1.8-1.8-.8-1.8-1.8.8-1.8 1.8-1.8zM9.5 9.5c.5 0 .9.4.9.9s-.4.9-.9.9-.9-.4-.9-.9.4-.9.9-.9zm5 0c.5 0 .9.4.9.9s-.4.9-.9.9-.9-.4-.9-.9.4-.9.9-.9zm-2.5 3c1.4 0 2.5 1.1 2.5 2.5h-5c0-1.4 1.1-2.5 2.5-2.5z" />
-  </svg>
-);
-
-const ComputerIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="20" height="20">
-    <rect x="2" y="3" width="20" height="14" rx="2" />
-    <line x1="8" y1="21" x2="16" y2="21" />
-    <line x1="12" y1="17" x2="12" y2="21" />
-  </svg>
-);
-
-function getTemplateIcon(key: string) {
-  const lowercaseKey = key.toLowerCase();
-  if (lowercaseKey.includes('win')) {
-    return <WindowsLogoIcon />;
-  }
-  if (lowercaseKey.includes('linux') || lowercaseKey.includes('ubuntu') || lowercaseKey.includes('debian')) {
-    return <LinuxIcon />;
-  }
-  return <ComputerIcon />;
-}
-
 interface TemplateItemProps {
   entry: TemplateCatalogEntry;
   isFirst: boolean;
@@ -141,7 +109,7 @@ function TemplateItem({ entry, isFirst, isLast, t, onToggle, onReorder }: Templa
   return (
     <div className={entry.enabled ? 'template-item template-item--active' : 'template-item'}>
       <span className="template-item__accent" aria-hidden="true" />
-      <div className="template-item__icon">{getTemplateIcon(entry.key)}</div>
+      <div className="template-item__icon"><TemplateIcon templateKey={entry.key} /></div>
       <div className="template-item__body">
         <div className="template-item__meta">
           <strong>{entry.label}</strong>
@@ -276,20 +244,25 @@ export function SettingsPage() {
   };
 
   const handleCheckUpdates = async () => {
+    const startedAt = Date.now();
+    const minimumDuration = 800;
     setChecking(true);
     setCheckMessage(null);
+    let nextMessage: string | null = null;
     try {
       const result = await checkForUpdates({ silent: false });
       if (result.error) {
-        setCheckMessage(t('settings.checkFailed'));
+        nextMessage = t('settings.checkFailed');
       } else if (!result.hasUpdate) {
-        setCheckMessage(t('settings.alreadyLatest'));
+        nextMessage = t('settings.alreadyLatest');
       }
     } catch {
-      setCheckMessage(t('settings.checkFailed'));
+      nextMessage = t('settings.checkFailed');
     } finally {
+      const remaining = Math.max(0, minimumDuration - (Date.now() - startedAt));
+      if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+      setCheckMessage(nextMessage);
       setChecking(false);
-      setTimeout(() => setCheckMessage(null), 3000);
     }
   };
 
@@ -416,10 +389,29 @@ export function SettingsPage() {
 
               {tab === 'files' ? (
                 <SectionCard title={t('settings.tabs.files')} description={t('settings.filesDescription')} icon={<FolderIcon />}>
-              <label className="field">
-                <span className="field__label">{t('settings.savePath')}</span>
-                <input value={defaultMachineDirectory} onChange={(event) => void patchSettings({ defaultSaveDirectory: event.target.value })} placeholder={appMeta?.defaultMachineDirectory ?? ''} />
-              </label>
+                  <label className="field">
+                    <span className="field__label">{t('settings.savePath')}</span>
+                    <input value={defaultMachineDirectory} onChange={(event) => void patchSettings({ defaultSaveDirectory: event.target.value })} placeholder={appMeta?.defaultMachineDirectory ?? ''} />
+                  </label>
+                  <div className="field">
+                    <span className="field__label">{t('settings.qemuExternalDirTitle')}</span>
+                    <div className="info-panel">
+                      <strong>{qemuSource}</strong>
+                      <p>{runtimeEnvironment?.effectiveRoot || settings.qemu.externalDir || t('settings.qemuPathUnavailable')}</p>
+                      <small className="field__hint">{qemuVersion}</small>
+                      {runtimeEnvironment?.errorMessage ? <p className="status-text status-text--danger">{runtimeEnvironment.errorMessage}</p> : null}
+                      <div className="action-row">
+                        <button className="button button--secondary" type="button" onClick={handleOpenQemuExternalDir}>
+                          {t('settings.qemuExternalDirConfigure')}
+                        </button>
+                        {settings.qemu.externalDir ? (
+                          <button className="button button--ghost" type="button" onClick={() => void handleClearQemuExternalDir()}>
+                            {t('settings.qemuExternalDirUseAuto')}
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
                 </SectionCard>
               ) : null}
 
@@ -438,25 +430,6 @@ export function SettingsPage() {
                   <div className="info-panel">
                     <strong>VNC</strong>
                     <p>{t('settings.displayVnc')}</p>
-                  </div>
-                </div>
-              </div>
-              <div className="field">
-                <span className="field__label">{t('settings.qemuExternalDirTitle')}</span>
-                <div className="info-panel">
-                  <strong>{qemuSource}</strong>
-                  <p>{runtimeEnvironment?.effectiveRoot || settings.qemu.externalDir || t('settings.qemuPathUnavailable')}</p>
-                  <small className="field__hint">{qemuVersion}</small>
-                  {runtimeEnvironment?.errorMessage ? <p className="status-text status-text--danger">{runtimeEnvironment.errorMessage}</p> : null}
-                  <div className="action-row">
-                    <button className="button button--secondary" type="button" onClick={handleOpenQemuExternalDir}>
-                      {t('settings.qemuExternalDirConfigure')}
-                    </button>
-                    {settings.qemu.externalDir ? (
-                      <button className="button button--ghost" type="button" onClick={() => void handleClearQemuExternalDir()}>
-                        {t('settings.qemuExternalDirUseAuto')}
-                      </button>
-                    ) : null}
                   </div>
                 </div>
               </div>
@@ -539,64 +512,62 @@ export function SettingsPage() {
 
               {tab === 'experimental' ? (
                 <SectionCard title={t('settings.tabs.experimental')} description={t('settings.experimentalDescription')} icon={<FlaskIcon />}>
-              <Checkbox
-                checked={settings.experimental.brandedHero}
-                onChange={(checked) => void patchSettings({ experimental: { ...settings.experimental, brandedHero: checked } })}
-                label={t('settings.experimentalHero')}
-              />
-              <Checkbox
-                checked={settings.experimental.advancedConsole}
-                onChange={(checked) => void patchSettings({ experimental: { ...settings.experimental, advancedConsole: checked } })}
-                label={t('settings.experimentalConsole')}
-              />
-              <Checkbox
-                checked={settings.experimental.protocolInspector}
-                onChange={(checked) => void patchSettings({ experimental: { ...settings.experimental, protocolInspector: checked } })}
-                label={t('settings.experimentalInspector')}
-              />
-              <Checkbox
-                checked={settings.experimental.rawQemuValues}
-                onChange={(checked) => void patchSettings({ experimental: { ...settings.experimental, rawQemuValues: checked } })}
-                label={t('settings.experimentalRawQemuValues')}
-              />
+                  <div className="experimental-settings">
+                    <div className="experimental-settings__list">
+                      {([
+                        ['brandedHero', 'experimentalHero', 'experimentalHeroDescription'],
+                        ['advancedConsole', 'experimentalConsole', 'experimentalConsoleDescription'],
+                        ['protocolInspector', 'experimentalInspector', 'experimentalInspectorDescription'],
+                        ['webMode', 'experimentalWebMode', 'experimentalWebModeDescription'],
+                        ['rawQemuValues', 'experimentalRawQemuValues', 'experimentalRawQemuValuesDescription']
+                      ] as const).map(([key, labelKey, descriptionKey]) => {
+                        const enabled = settings.experimental[key];
+                        return (
+                          <label className={enabled ? 'experimental-option experimental-option--enabled' : 'experimental-option'} key={key}>
+                            <span className="experimental-option__copy">
+                              <strong>{t(`settings.${labelKey}`)}</strong>
+                              <small>{t(`settings.${descriptionKey}`)}</small>
+                            </span>
+                            <input
+                              className="experimental-option__input"
+                              type="checkbox"
+                              checked={enabled}
+                              aria-label={t(`settings.${labelKey}`)}
+                              onChange={(event) => void patchSettings({ experimental: { ...settings.experimental, [key]: event.target.checked } })}
+                            />
+                            <span className="experimental-option__toggle" aria-hidden="true"><span className="experimental-option__thumb" /></span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </SectionCard>
               ) : null}
 
               {tab === 'update' ? (
                 <SectionCard title={t('settings.tabs.update')} description={t('settings.updateDescription')} icon={<DownloadIcon />}>
-                  <div className="field">
-                    <span className="field__label">{t('settings.currentVersion')}</span>
-                    <div className="info-panel">
-                      <strong>{updateCurrentInfo?.currentVersion || '0.0.1'}</strong>
+                  <div className="update-settings" aria-busy={checking}>
+                    <div className="update-settings__summary">
+                      <span className="update-settings__icon" aria-hidden="true"><DownloadIcon /></span>
+                      <div className="update-settings__version">
+                        <span>{t('settings.currentVersion')}</span>
+                        <strong>{updateCurrentInfo?.currentVersion || '0.0.1'}</strong>
+                      </div>
                     </div>
-                  </div>
-                  <div className="field">
-                    <span className="field__label">{t('settings.currentChannel')}</span>
-                    <div className="info-panel">
-                      <strong>{updateCurrentInfo?.currentChannel || 'Beta'}</strong>
+                    <dl className="update-settings__details">
+                      <div><dt>{t('settings.currentChannel')}</dt><dd>{updateCurrentInfo?.currentChannel || 'Beta'}</dd></div>
+                      <div><dt>{t('settings.skippedVersion')}</dt><dd>{updateCurrentInfo?.skippedVersion || t('settings.noSkippedVersion')}</dd></div>
+                    </dl>
+                    <div className="update-settings__progress-slot" aria-label={checking ? t('settings.checkingUpdates') : undefined}>
+                      {checking ? <div className="update-settings__progress" aria-hidden="true">{Array.from({ length: 5 }, (_, index) => <span className="update-settings__progress-dot" key={index} />)}</div> : null}
                     </div>
-                  </div>
-                  <div className="field">
-                    <span className="field__label">{t('settings.skippedVersion')}</span>
-                    <div className="info-panel">
-                      <strong>{updateCurrentInfo?.skippedVersion || t('settings.noSkippedVersion')}</strong>
+                    <div className="update-settings__actions">
+                      <button className="button button--primary" type="button" onClick={() => void handleCheckUpdates()} disabled={checking}>
+                        {checking ? t('settings.checkingUpdates') : t('settings.checkUpdates')}
+                      </button>
                     </div>
+                    {checkMessage ? <div className="update-settings__message" role="status">{checkMessage}</div> : null}
                   </div>
-                  <div className="action-row">
-                    <button
-                      className="button button--primary"
-                      type="button"
-                      onClick={() => void handleCheckUpdates()}
-                      disabled={checking}
-                    >
-                      {checking ? t('settings.checkingUpdates') : t('settings.checkUpdates')}
-                    </button>
-                  </div>
-                  {checkMessage ? (
-                    <div className="info-panel" style={{ marginTop: '8px' }}>
-                      <p style={{ margin: 0 }}>{checkMessage}</p>
-                    </div>
-                  ) : null}
                 </SectionCard>
               ) : null}
             </SettingsDrawerSection>

@@ -18,6 +18,12 @@ export const resources = {
       copy: '复制',
       copied: '已复制',
       more: '更多',
+      welcome: {
+        title: '欢迎使用 Sanaka',
+        subtitle: '来见见新版本更新了什么吧！',
+        close: '关闭',
+        neverRemind: '不再提醒'
+      },
       openWebMode: '打开网页模式',
       openingWebMode: '正在打开网页模式…',
       copyWebModeUrl: '复制网页地址',
@@ -501,9 +507,15 @@ export const resources = {
       displaySpice: '旧兼容能力，当前主流程不再提供。',
       displayVnc: '当前固定使用的连接协议。',
       experimentalHero: '优化首页焦点区',
+      experimentalHeroDescription: '启用新版首页重点内容与布局。',
       experimentalConsole: '增强控制台细节',
-      experimentalInspector: '连接诊断'
-      ,experimentalRawQemuValues: '显示未格式化的内容'
+      experimentalConsoleDescription: '显示更多虚拟机控制台状态和操作信息。',
+      experimentalInspector: '连接诊断',
+      experimentalInspectorDescription: '提供 VNC 和运行时连接的诊断信息。',
+      experimentalWebMode: '网页版',
+      experimentalWebModeDescription: '显示网页版入口及相关功能。',
+      experimentalRawQemuValues: '显示未格式化的内容',
+      experimentalRawQemuValuesDescription: '按 QEMU 原始值显示带注释和格式化的配置内容。'
     },
     notices: {
       defaultMachineLocation: '新建后会自动保存到默认位置：'
@@ -690,6 +702,12 @@ export const resources = {
       copy: 'Copy',
       copied: 'Copied',
       more: 'More',
+      welcome: {
+        title: 'Welcome to Sanaka',
+        subtitle: 'See what is new in this version.',
+        close: 'Close',
+        neverRemind: 'Do not show again'
+      },
       openWebMode: 'Open Web Mode',
       openingWebMode: 'Opening Web Mode…',
       copyWebModeUrl: 'Copy Web Address',
@@ -1173,9 +1191,15 @@ export const resources = {
       displaySpice: 'Legacy compatibility only and no longer part of the main flow.',
       displayVnc: 'The fixed connection protocol used by Sanaka.',
       experimentalHero: 'Refine home focus area',
+      experimentalHeroDescription: 'Enable the redesigned home focus area and layout.',
       experimentalConsole: 'Advanced Console Details',
-      experimentalInspector: 'Connection Diagnostics'
-      ,experimentalRawQemuValues: 'Show unformatted values'
+      experimentalConsoleDescription: 'Show more machine console status and controls.',
+      experimentalInspector: 'Connection Diagnostics',
+      experimentalInspectorDescription: 'Provide diagnostics for VNC and runtime connections.',
+      experimentalWebMode: 'Web Mode',
+      experimentalWebModeDescription: 'Show the web mode entry and related features.',
+      experimentalRawQemuValues: 'Show unformatted values',
+      experimentalRawQemuValuesDescription: 'Show annotated and formatted configuration values as raw QEMU values.'
     },
     notices: {
       defaultMachineLocation: 'New machines save automatically to the default location:'

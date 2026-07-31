@@ -1,5 +1,34 @@
 # GPT -> Kimi Sendback
 
+## 2026-08-01 设置页与欢迎窗口回退修复
+
+### 实际产出
+
+- 补回欢迎窗口中英文资源，`WelcomeDialog` 不再显示 `app.welcome.*` 翻译 key。
+- 设置页模板列表重新使用 `TemplateIcon`，恢复 Windows XP、Windows 98、Windows 10 和 Linux 的彩色原版图标；暗色模式继续沿用现有轻微降亮度处理。
+- 实验功能恢复为行式开关布局，并补回“网页版”开关；现有五项实验设置均直接写回 `settings.experimental`。
+- 更新区域重新接回 `update-settings` 设计和 Windows Phone 风格五点加载条；检查动画至少显示 800ms，结果不再三秒后自动消失。
+- QEMU 路径、版本和命中来源从“默认配置”移到“文件”，原有目录选择、恢复自动检测和扫描对话框逻辑未改。
+
+### 没改什么
+
+- 没有修改 Electron main、preload、IPC、QEMU 检测器或更新协议。
+- 没有重做现有 CSS 设计；本次复用了仓库中已经存在但未被 JSX 使用的 `experimental-option`、`update-settings` 和 `TemplateIcon` 样式。
+- 没有处理根目录图标审阅文件和 `.agents/` 本地链接。
+
+### 后续注意
+
+- 前端后续调整 `SettingsPage` 时，不要恢复本地 `getTemplateIcon()` 通用 SVG；模板图标统一走 `src/components/TemplateIcon.tsx`。
+- `experimental.webMode` 必须继续保留在实验功能界面。
+- QEMU 运行环境入口属于“文件”抽屉，不要重新放回“默认配置”。
+
+### 验证
+
+- `npm run typecheck` 通过。
+- `npm test -- --run` 通过：48 个测试文件，228 个测试。
+- `npm run build` 通过。
+- `git diff --check` 通过。
+
 ## 2026-08-01 accidental pull recovery
 
 - Recovered the uncommitted renderer, Electron, runtime, packaging, update, VNC, web workspace, welcome video, and external QEMU changes from the local Codex session log and surviving build files.
