@@ -1,12 +1,12 @@
 export const resources = {
   'zh-CN': {
     app: {
-      tagline: '虚拟机工作室',
+      tagline: 'Virtual Machine Studio',
       home: '首页',
       settings: '设置',
       about: '关于 Sanaka',
       aboutDescription: 'Sanaka 用来创建、打开和整理你的虚拟机配置。',
-      aboutFooter: 'Sanakaprix 2026 · 虚拟机工作室',
+      aboutFooter: 'Sanakaprix 2026 · Virtual Machine Studio',
       back: '返回',
       cancel: '取消',
       save: '保存',
@@ -113,7 +113,7 @@ export const resources = {
       passwordStorageUnavailable: '当前系统无法安全保存密码。'
     },
     home: {
-      shellLabel: '桌面工作区',
+      shellLabel: 'Desktop Workspace',
       title: '工作台',
       subtitle: '继续管理当前虚拟机，或者开始一台新的工作机。',
       focusEyebrow: '当前虚拟机',
