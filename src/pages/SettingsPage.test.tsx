@@ -22,10 +22,18 @@ const runtimeEnvironment = {
   checkedAt: new Date().toISOString(),
   platform: 'darwin',
   arch: 'arm64',
+  source: 'auto-detected' as const,
+  effectiveRoot: '/usr',
   installHint: ''
 };
 
-function mockElectronApi() {
+type RuntimeEnvironmentFixture = Omit<typeof runtimeEnvironment, 'source'> & {
+  source: 'bundled' | 'auto-detected' | 'external-configured';
+  errorCode?: string | null;
+  errorMessage?: string | null;
+};
+
+function mockElectronApi(environment: RuntimeEnvironmentFixture = runtimeEnvironment) {
   window.electronAPI = {
     files: {
       openMachineBundle: vi.fn(async () => null),
@@ -68,11 +76,11 @@ function mockElectronApi() {
       reorder: vi.fn(async (paths) => paths)
     },
     runtime: {
-      detectQemu: vi.fn(async () => runtimeEnvironment),
+      detectQemu: vi.fn(async () => environment),
       scanQemuDirectories: vi.fn(async () => ({ candidates: [], roots: [], scannedDirectories: 0, skippedDirectories: 0, elapsedMs: 0, cancelled: false, truncated: false })),
       cancelQemuDirectoryScan: vi.fn(async () => ({ ok: true as const, cancelled: false })),
       validateQemuDirectory: vi.fn(async () => ({ ok: false })),
-      getRuntimeEnvironment: vi.fn(async () => runtimeEnvironment),
+      getRuntimeEnvironment: vi.fn(async () => environment),
       previewMachineCommand: vi.fn(async () => ({
         machineId: 'machine-1',
         bundlePath: '/tmp/example.saka',
@@ -194,6 +202,9 @@ describe('SettingsPage', () => {
     expect(drawer?.querySelector('.settings-drawer__trigger')).not.toHaveTextContent('默认配置');
     expect(screen.queryByRole('button', { name: '恢复自动检测' })).not.toBeInTheDocument();
     expect(chooseButton.closest('.qemu-runtime-card')).toBeInTheDocument();
+    expect(screen.getByText('外部路径 QEMU')).toBeInTheDocument();
+    expect(screen.getByText('QEMU 版本 9.0.0')).toBeInTheDocument();
+    expect(screen.queryByText('QEMU emulator version 9.0.0')).not.toBeInTheDocument();
   });
 
   it('shows the web mode experiment and original template artwork', async () => {
@@ -201,6 +212,31 @@ describe('SettingsPage', () => {
 
     expect(await screen.findByRole('checkbox', { name: '网页版' })).toBeInTheDocument();
     expect(document.querySelectorAll('.template-os-icon').length).toBeGreaterThan(0);
+  });
+
+  it('uses the green internal QEMU status', async () => {
+    mockElectronApi({ ...runtimeEnvironment, source: 'bundled' });
+    renderSettings('/settings?tab=files');
+
+    expect(await screen.findByText('Sanaka 内部 QEMU')).toBeInTheDocument();
+    expect(document.querySelector('.qemu-runtime-card__status--internal')).toBeInTheDocument();
+  });
+
+  it('uses the red unavailable QEMU status and localized error', async () => {
+    mockElectronApi({
+      ...runtimeEnvironment,
+      available: false,
+      source: 'external-configured',
+      errorCode: 'QEMU_EXTERNAL_BINARIES_MISSING',
+      errorMessage: 'raw backend error',
+      effectiveRoot: '/opt/qemu'
+    });
+    renderSettings('/settings?tab=files');
+
+    expect(await screen.findByText('QEMU 不可用')).toBeInTheDocument();
+    expect(document.querySelector('.qemu-runtime-card__status--unavailable')).toBeInTheDocument();
+    expect(screen.getByText('这个目录中没有可用的 QEMU：/opt/qemu')).toBeInTheDocument();
+    expect(screen.queryByText('raw backend error')).not.toBeInTheDocument();
   });
 
   it('shows five progress dots while checking for updates', async () => {

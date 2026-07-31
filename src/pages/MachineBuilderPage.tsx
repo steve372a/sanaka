@@ -984,9 +984,10 @@ export function MachineBuilderPage() {
                   />
                   {showArchWarning && (
                     <span className="field__hint" style={{ color: 'var(--danger)', marginTop: '8px', display: 'block', fontWeight: 500 }}>
-                      ⚠️ {t('builder.descriptions.archMismatchWarning')
-                            .replace('<宿主机架构名称>', (appMeta?.arch || '').toUpperCase())
-                            .replace('<虚拟机架构名称>', machine.system.arch || '')}
+                      ⚠️ {t('builder.descriptions.archMismatchWarning', {
+                            hostArch: (appMeta?.arch || '').toUpperCase(),
+                            guestArch: machine.system.arch || ''
+                          })}
                     </span>
                   )}
                 </div>

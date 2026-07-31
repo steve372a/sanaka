@@ -1,5 +1,22 @@
 # GPT -> Kimi Sendback
 
+## 2026-08-01 QEMU 状态与中英文资源清理
+
+### 实际产出
+
+- 设置页不再直接显示 QEMU 的原始 `QEMU emulator version ...` 输出；只提取版本号，再通过 i18n 显示为中文“QEMU 版本 11.0.1”或英文“QEMU version 11.0.1”。
+- QEMU 状态改为三种来源状态：内置 QEMU 使用绿色“Sanaka 内部 QEMU”，自动探测或用户指定的外部路径使用黄色“外部路径 QEMU”，不可用时使用红色“QEMU 不可用”。
+- QEMU 检测失败不再把后端英文异常直接显示在中文界面；根据 `errorCode` 映射为中英文用户文案。
+- 清理资源混排：中文界面的 `Virtual Machine Studio`、`Desktop Workspace` 改为中文；英文架构不匹配警告不再包含中文占位符，改用统一的 `{{hostArch}}`、`{{guestArch}}` i18n 变量。
+- 保留 QEMU、VNC、Sanaka、TCG、Finder、路径和命令等专有名词，不做错误翻译。
+
+### 验证
+
+- 英文资源中已没有中文字符。
+- 非测试界面中不再直接引用 `QEMU emulator version`，仅版本解析正则保留该协议输出格式。
+- `npm run typecheck`、`npm run build`、`git diff --check` 通过。
+- `npm test -- --run` 通过：48 个测试文件，231 个测试。
+
 ## 2026-08-01 QEMU 目录状态卡重设计
 
 ### 实际产出

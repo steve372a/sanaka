@@ -93,14 +93,24 @@
   background: var(--danger);
 }
 
-.qemu-runtime-card__status--ready {
+.qemu-runtime-card__status--internal {
   border-color: color-mix(in srgb, var(--success) 18%, var(--line));
   background: color-mix(in srgb, var(--success) 6%, var(--input-surface));
   color: var(--text);
 }
 
-.qemu-runtime-card__status--ready i {
+.qemu-runtime-card__status--internal i {
   background: var(--success);
+}
+
+.qemu-runtime-card__status--external {
+  border-color: color-mix(in srgb, var(--warning) 24%, var(--line));
+  background: color-mix(in srgb, var(--warning) 8%, var(--input-surface));
+  color: var(--text);
+}
+
+.qemu-runtime-card__status--external i {
+  background: var(--warning);
 }
 
 .qemu-runtime-card__path {

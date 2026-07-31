@@ -96,6 +96,13 @@ const DownloadIcon = () => (
   </svg>
 );
 
+function extractQemuVersion(rawVersion: string | null | undefined) {
+  if (!rawVersion) return null;
+  const trimmed = rawVersion.trim();
+  const qemuVersionMatch = trimmed.match(/^QEMU emulator version\s+([^\s(]+)/i);
+  return qemuVersionMatch?.[1] || trimmed;
+}
+
 interface TemplateItemProps {
   entry: TemplateCatalogEntry;
   isFirst: boolean;
@@ -294,12 +301,34 @@ export function SettingsPage() {
     await window.electronAPI.runtime.detectQemu();
   };
 
-  const qemuVersion = Object.values(runtimeEnvironment?.binaries || {}).find((binary) => binary.found && binary.version)?.version || t('settings.qemuVersionUnknown');
+  const qemuVersion = extractQemuVersion(Object.values(runtimeEnvironment?.binaries || {}).find((binary) => binary.found && binary.version)?.version);
   const qemuSource = runtimeEnvironment?.source === 'external-configured'
     ? t('settings.qemuSourceExternal')
     : runtimeEnvironment?.source === 'bundled'
       ? t('settings.qemuSourceBundled')
       : t('settings.qemuSourceAuto');
+  const qemuStatusKind = !runtimeEnvironment?.available
+    ? 'unavailable'
+    : runtimeEnvironment.source === 'bundled'
+      ? 'internal'
+      : 'external';
+  const qemuStatusLabel = qemuStatusKind === 'internal'
+    ? t('settings.qemuRuntimeInternal')
+    : qemuStatusKind === 'external'
+      ? t('settings.qemuRuntimeExternal')
+      : t('settings.qemuRuntimeUnavailable');
+  const qemuErrorPath = runtimeEnvironment?.effectiveRoot || settings.qemu.externalDir || '';
+  const qemuErrorMessage = runtimeEnvironment?.errorCode === 'QEMU_EXTERNAL_DIR_NOT_DIRECTORY'
+    ? t('settings.qemuErrorNotDirectory', { path: qemuErrorPath })
+    : runtimeEnvironment?.errorCode === 'QEMU_EXTERNAL_DIR_NOT_FOUND'
+      ? t('settings.qemuErrorNotFound', { path: qemuErrorPath })
+      : runtimeEnvironment?.errorCode === 'QEMU_EXTERNAL_DIR_UNREADABLE'
+        ? t('settings.qemuErrorUnreadable', { path: qemuErrorPath })
+        : runtimeEnvironment?.errorCode === 'QEMU_EXTERNAL_BINARIES_MISSING'
+          ? t('settings.qemuErrorBinariesMissing', { path: qemuErrorPath })
+          : runtimeEnvironment?.errorMessage
+            ? t('settings.qemuErrorGeneric')
+            : null;
 
   return (
     <div className="page page--settings">
@@ -394,9 +423,9 @@ export function SettingsPage() {
                           <span>{t('settings.qemuRuntimeCurrent')}</span>
                           <strong>{qemuSource}</strong>
                         </div>
-                        <span className={runtimeEnvironment?.available ? 'qemu-runtime-card__status qemu-runtime-card__status--ready' : 'qemu-runtime-card__status'}>
+                        <span className={`qemu-runtime-card__status qemu-runtime-card__status--${qemuStatusKind}`}>
                           <i aria-hidden="true" />
-                          {runtimeEnvironment?.available ? t('settings.qemuRuntimeAvailable') : t('settings.qemuRuntimeUnavailable')}
+                          {qemuStatusLabel}
                         </span>
                       </div>
                       <div className="qemu-runtime-card__path">
@@ -406,13 +435,15 @@ export function SettingsPage() {
                         </code>
                       </div>
                       <div className="qemu-runtime-card__footer">
-                        <span className="qemu-runtime-card__version">{qemuVersion}</span>
+                        <span className="qemu-runtime-card__version">
+                          {qemuVersion ? t('settings.qemuVersionDisplay', { version: qemuVersion }) : t('settings.qemuVersionUnknown')}
+                        </span>
                         <button className="button button--secondary qemu-runtime-card__choose" type="button" onClick={handleOpenQemuExternalDir}>
                           <FolderIcon />
                           {t('settings.qemuExternalDirConfigure')}
                         </button>
                       </div>
-                      {runtimeEnvironment?.errorMessage ? <p className="qemu-runtime-card__error status-text status-text--danger">{runtimeEnvironment.errorMessage}</p> : null}
+                      {qemuErrorMessage ? <p className="qemu-runtime-card__error status-text status-text--danger">{qemuErrorMessage}</p> : null}
                     </div>
                   </div>
                 </SectionCard>
