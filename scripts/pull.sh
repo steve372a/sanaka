@@ -64,15 +64,6 @@ ROOT_DIR="$1"
 TARGET_BRANCH="$2"
 cd "$ROOT_DIR"
 
-retry_sync_after_fix() {
-  local error_output="$1"
-  local conflict_path
-  conflict_path="$(printf '%s\n' "$error_output" | sed -n "s/^error: unable to create file \(.*\): File exists$/\1/p" | head -n 1)"
-  if [[ -n "$conflict_path" ]]; then
-    rm -rf -- "$ROOT_DIR/$conflict_path" 2>/dev/null || true
-  fi
-}
-
 run_sync_once() {
   local timestamp backup_ref stash_before stash_after
   timestamp="$(date '+%Y%m%d-%H%M%S')"
@@ -110,20 +101,7 @@ run_sync_once() {
   git reset --hard "origin/${TARGET_BRANCH}"
 }
 
-run_sync_with_retry() {
-  local error_output=""
-  if run_sync_once 2> >(tee "$ROOT_DIR/.sanaka-pull.stderr" >&2); then
-    rm -f "$ROOT_DIR/.sanaka-pull.stderr" 2>/dev/null || true
-    return 0
-  fi
-
-  error_output="$(cat "$ROOT_DIR/.sanaka-pull.stderr" 2>/dev/null || true)"
-  rm -f "$ROOT_DIR/.sanaka-pull.stderr" 2>/dev/null || true
-  retry_sync_after_fix "$error_output"
-  run_sync_once
-}
-
-run_sync_with_retry
+run_sync_once
 EOF
 chmod +x "$TEMP_HELPER"
 
