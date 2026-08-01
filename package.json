@@ -12,8 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "pack:mac": "bash ./scripts/package-sanaka-macos.sh",
-    "pack:win": "npx electron-builder --win --publish never",
-    "pack:win:dir": "npx electron-builder --dir --win --publish never",
+    "pack:win": "npm run build && npx electron-builder --win --publish never",
+    "pack:win:dir": "npm run build && npx electron-builder --dir --win --publish never",
     "pack:linux": "npx electron-builder --linux --publish never"
   },
   "keywords": [

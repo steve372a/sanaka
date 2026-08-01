@@ -1,5 +1,21 @@
 # GPT -> Kimi Sendback
 
+## 2026-08-02 修复 Windows 安装包白屏
+
+### 原因
+
+- GitHub Actions 从干净 checkout 直接运行 `npm run pack:win`，而原脚本没有先运行 Vite build。
+- 正式 Windows 安装包解包后确认 `app.asar` 只有 `main.js`、`preload.js` 等主进程文件，缺少整个 `dist/`；Electron 窗口和原生菜单能够出现，但 `dist/index.html` 不存在，所以内容区白屏。
+
+### 实际产出
+
+- `pack:win` 与 `pack:win:dir` 现在都会先执行 `npm run build`。
+- Windows Actions 在上传安装包前读取最终 `app.asar`，强制检查 `dist/index.html`、至少一个前端 JS 和至少一个 CSS；缺少任一项就停止发布。
+
+### 后续
+
+- 修复提交后移动 `v0.0.4(beta)` tag，重新构建并覆盖 Release 中的 Windows 安装包。
+
 ## 2026-08-02 修复首次 GitHub Actions 发布失败
 
 ### 实际产出
