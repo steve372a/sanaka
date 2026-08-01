@@ -11,6 +11,7 @@
 
 - `pack:win` 与 `pack:win:dir` 现在都会先执行 `npm run build`。
 - Windows Actions 在上传安装包前读取最终 `app.asar`，强制检查 `dist/index.html`、至少一个前端 JS 和至少一个 CSS；缺少任一项就停止发布。
+- `app.asar` 清单在 Windows 使用反斜杠，校验前会统一为 `/`；避免把实际存在的 renderer 误判为缺失。
 
 ### 后续
 

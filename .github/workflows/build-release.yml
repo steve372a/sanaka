@@ -71,7 +71,7 @@ jobs:
         run: |
           $asarPath = Join-Path $env:GITHUB_WORKSPACE 'release\win-unpacked\resources\app.asar'
           if (-not (Test-Path $asarPath)) { throw "Packaged app.asar is missing: $asarPath" }
-          node -e "const asar=require('@electron/asar'); const files=asar.listPackage(process.argv[1]); const required=['/dist/index.html']; const missing=required.filter((file)=>!files.includes(file)); const hasJs=files.some((file)=>file.startsWith('/dist/assets/')&&file.endsWith('.js')); const hasCss=files.some((file)=>file.startsWith('/dist/assets/')&&file.endsWith('.css')); if(missing.length||!hasJs||!hasCss){throw new Error('Packaged renderer is incomplete: '+JSON.stringify({missing,hasJs,hasCss}));} console.log('Packaged renderer verified.');" $asarPath
+          node -e "const asar=require('@electron/asar'); const path=require('node:path'); const files=asar.listPackage(process.argv[1]).map((file)=>file.split(path.sep).join('/')); const required=['/dist/index.html']; const missing=required.filter((file)=>!files.includes(file)); const jsFiles=files.filter((file)=>file.startsWith('/dist/assets/')&&file.endsWith('.js')); const cssFiles=files.filter((file)=>file.startsWith('/dist/assets/')&&file.endsWith('.css')); if(missing.length||!jsFiles.length||!cssFiles.length){throw new Error('Packaged renderer is incomplete: '+JSON.stringify({missing,jsFiles:jsFiles.length,cssFiles:cssFiles.length}));} console.log('Packaged renderer verified:',required[0],jsFiles.length+' JS',cssFiles.length+' CSS');" $asarPath
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
