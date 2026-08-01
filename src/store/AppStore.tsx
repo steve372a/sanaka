@@ -310,14 +310,23 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     ]);
 
     const parsedSettings = appSettingsSchema.safeParse(loadedSettings).success ? normalizeSettingsForMainline(appSettingsSchema.parse(loadedSettings)) : defaultSettings;
-    const nextSettings = parsedSettings.defaultSaveDirectory
+    const settingsWithDefaultDirectory = parsedSettings.defaultSaveDirectory
       ? parsedSettings
       : {
           ...parsedSettings,
           defaultSaveDirectory: meta.defaultMachineDirectory
         };
+    const shouldMigrateLegacyWelcome = !settingsWithDefaultDirectory.showWelcomeOnStartup
+      && !settingsWithDefaultDirectory.welcomeDismissedVersion;
+    const nextSettings = shouldMigrateLegacyWelcome
+      ? {
+          ...settingsWithDefaultDirectory,
+          showWelcomeOnStartup: true,
+          welcomeDismissedVersion: meta.version
+        }
+      : settingsWithDefaultDirectory;
     const nextRecents = recentEntrySchema.array().safeParse(loadedRecents).success ? recentEntrySchema.array().parse(loadedRecents) : [];
-    if (nextSettings.defaultSaveDirectory !== parsedSettings.defaultSaveDirectory) {
+    if (nextSettings.defaultSaveDirectory !== parsedSettings.defaultSaveDirectory || shouldMigrateLegacyWelcome) {
       await window.electronAPI.settings.save(nextSettings);
     }
     setSettings(nextSettings);

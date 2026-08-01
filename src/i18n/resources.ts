@@ -22,7 +22,7 @@ export const resources = {
         title: '欢迎使用 Sanaka',
         subtitle: '来见见新版本更新了什么吧！',
         close: '关闭',
-        neverRemind: '不再提醒'
+        dismissUntilNextVersion: '至下个版本不再提醒'
       },
       openWebMode: '打开网页模式',
       openingWebMode: '正在打开网页模式…',
@@ -715,7 +715,7 @@ export const resources = {
         title: 'Welcome to Sanaka',
         subtitle: 'See what is new in this version.',
         close: 'Close',
-        neverRemind: 'Do not show again'
+        dismissUntilNextVersion: 'Do not remind until the next version'
       },
       openWebMode: 'Open Web Mode',
       openingWebMode: 'Opening Web Mode…',

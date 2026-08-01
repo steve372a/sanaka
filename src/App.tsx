@@ -18,7 +18,7 @@ import { useAppStore } from './store/AppStore';
 import { useT } from './hooks/useT';
 import { useAccentColor } from './hooks/useAccentColor';
 import { WelcomeDialog } from './components/WelcomeDialog';
-import { claimWelcomeForSession } from './lib/welcomeSession';
+import { claimWelcomeForSession, shouldShowWelcomeForVersion } from './lib/welcomeSession';
 
 const TrashIcon = ({ style }: { style?: React.CSSProperties }) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={style}>
@@ -70,6 +70,7 @@ function MainLayout() {
   const navigate = useNavigate();
   const {
     ready,
+    appMeta,
     settings,
     persistSettings,
     aboutOpen,
@@ -93,13 +94,18 @@ function MainLayout() {
   const [welcomeOpen, setWelcomeOpen] = useState(false);
 
   useEffect(() => {
-    if (!ready || !claimWelcomeForSession()) return;
-    if (settings.showWelcomeOnStartup) setWelcomeOpen(true);
-  }, [ready, settings.showWelcomeOnStartup]);
+    if (!ready || !appMeta?.version || !claimWelcomeForSession()) return;
+    if (shouldShowWelcomeForVersion(settings.welcomeDismissedVersion, appMeta.version)) setWelcomeOpen(true);
+  }, [appMeta?.version, ready, settings.welcomeDismissedVersion]);
 
-  const handleNeverRemind = async () => {
+  const handleDismissUntilNextVersion = async () => {
     setWelcomeOpen(false);
-    await persistSettings({ ...settings, showWelcomeOnStartup: false });
+    if (!appMeta?.version) return;
+    await persistSettings({
+      ...settings,
+      showWelcomeOnStartup: true,
+      welcomeDismissedVersion: appMeta.version
+    });
   };
 
   useEffect(() => {
@@ -172,7 +178,7 @@ function MainLayout() {
       </div>
       <AboutPage isOpen={aboutPageOpen} onClose={handleAboutPageClose} clickPosition={logoClickPosition} />
       <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
-      <WelcomeDialog open={welcomeOpen} onClose={() => setWelcomeOpen(false)} onNeverRemind={() => void handleNeverRemind()} />
+      <WelcomeDialog open={welcomeOpen} onClose={() => setWelcomeOpen(false)} onDismissUntilNextVersion={() => void handleDismissUntilNextVersion()} />
       <UpdateReminder
         reminder={updateReminder}
         onDismiss={dismissUpdateReminder}

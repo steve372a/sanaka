@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppStoreProvider, useAppStore } from './AppStore';
+import { defaultSettings } from '../domain/defaults';
 import { createMachineFromTemplate } from '../domain/templates';
 import { serializeSakaMachine } from '../lib/saka';
 
@@ -219,6 +220,29 @@ describe('AppStore startMachine', () => {
     const savedContent = firstSaveCall?.[1];
     expect(typeof savedContent).toBe('string');
     expect(savedContent).toContain('accelerator = "tcg"');
+  });
+
+  it('migrates the old permanent welcome dismissal to the current version', async () => {
+    const legacySettings = structuredClone(defaultSettings);
+    legacySettings.showWelcomeOnStartup = false;
+    delete (legacySettings as Partial<typeof legacySettings>).welcomeDismissedVersion;
+    window.electronAPI.settings.load = vi.fn(async () => legacySettings);
+    const saveSettings = vi.fn(async (settings) => settings);
+    window.electronAPI.settings.save = saveSettings;
+
+    render(
+      <AppStoreProvider>
+        <StoreHarness />
+      </AppStoreProvider>
+    );
+
+    await screen.findByRole('button', { name: 'open' });
+    await waitFor(() => {
+      expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({
+        showWelcomeOnStartup: true,
+        welcomeDismissedVersion: '1.0.0'
+      }));
+    });
   });
 
   it('shows an import error when the selected svm is not a template', async () => {

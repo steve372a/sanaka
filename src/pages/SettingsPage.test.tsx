@@ -174,6 +174,7 @@ describe('SettingsPage', () => {
 
     const toggle = await screen.findByRole('checkbox', { name: '减弱动态效果' });
     expect(toggle).not.toBeChecked();
+    expect(toggle.nextElementSibling).toHaveClass('settings-motion-option__toggle');
     expect(screen.queryByRole('button', { name: '减弱动态效果' })).not.toBeInTheDocument();
 
     await user.click(toggle);

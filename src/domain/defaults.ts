@@ -6,6 +6,7 @@ export const defaultSettings: AppSettings = {
   theme: 'light',
   reduceMotion: false,
   showWelcomeOnStartup: true,
+  welcomeDismissedVersion: '',
   defaultSaveDirectory: '',
   qemu: {
     externalDir: ''

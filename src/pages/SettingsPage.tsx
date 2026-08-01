@@ -396,7 +396,7 @@ export function SettingsPage() {
                     type="checkbox"
                     onChange={(event) => void setReduceMotion(event.target.checked)}
                   />
-                  <span className="ios-toggle__track" aria-hidden="true"><span className="ios-toggle__thumb" /></span>
+                  <span className="settings-motion-option__toggle" aria-hidden="true"><span className="settings-motion-option__thumb" /></span>
                 </label>
               </div>
               <AccentColorCustomDialog

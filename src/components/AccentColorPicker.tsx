@@ -1,5 +1,6 @@
 import type { AppSettings } from '../domain/schemas';
 import { useT } from '../hooks/useT';
+import { getAccentPresetColor } from '../lib/accentColor';
 
 export type AccentColor = AppSettings['accentColor'];
 
@@ -10,11 +11,11 @@ interface AccentColorPickerProps {
 }
 
 const PRESETS: Array<{ key: AccentColor['preset']; color: string }> = [
-  { key: 'purple', color: '#C678FF' },
-  { key: 'blue', color: '#4A90E2' },
-  { key: 'orange', color: '#E67E22' },
-  { key: 'white', color: '#F5F5F5' },
-  { key: 'green', color: '#27AE60' }
+  { key: 'purple', color: getAccentPresetColor('purple') },
+  { key: 'blue', color: getAccentPresetColor('blue') },
+  { key: 'orange', color: getAccentPresetColor('orange') },
+  { key: 'white', color: getAccentPresetColor('white') },
+  { key: 'green', color: getAccentPresetColor('green') }
 ];
 
 const PlusIcon = () => (

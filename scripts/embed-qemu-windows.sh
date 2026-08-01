@@ -9,11 +9,25 @@ if [[ $# -lt 2 ]]; then
   exit 1
 fi
 
-QEMU_DIR="$1"
+QEMU_INPUT_DIR="$1"
 APP_DIR="$2"
 
-if [[ ! -d "$QEMU_DIR" ]]; then
-  sanaka_printf_ln "embed_windows.qemu_dir_not_found" "$QEMU_DIR" >&2
+if [[ ! -d "$QEMU_INPUT_DIR" ]]; then
+  sanaka_printf_ln "embed_windows.qemu_dir_not_found" "$QEMU_INPUT_DIR" >&2
+  exit 1
+fi
+
+QEMU_ROOT_DIR="$QEMU_INPUT_DIR"
+QEMU_BIN_SOURCE_DIR="$QEMU_INPUT_DIR"
+
+if [[ "$(basename "$QEMU_INPUT_DIR")" == [Bb][Ii][Nn] && -f "$QEMU_INPUT_DIR/qemu-system-x86_64.exe" ]]; then
+  QEMU_ROOT_DIR="$(cd "$QEMU_INPUT_DIR/.." && pwd)"
+elif [[ -f "$QEMU_INPUT_DIR/qemu-system-x86_64.exe" ]]; then
+  QEMU_ROOT_DIR="$QEMU_INPUT_DIR"
+elif [[ -f "$QEMU_INPUT_DIR/bin/qemu-system-x86_64.exe" ]]; then
+  QEMU_BIN_SOURCE_DIR="$QEMU_INPUT_DIR/bin"
+else
+  sanaka_printf_ln "embed_windows.missing_required_binary" "$QEMU_INPUT_DIR/qemu-system-x86_64.exe or $QEMU_INPUT_DIR/bin/qemu-system-x86_64.exe" >&2
   exit 1
 fi
 
@@ -62,25 +76,25 @@ OPTIONAL_SKIP=(
 )
 
 for binary in "${SYSTEM_TARGETS[@]}"; do
-  if [[ ! -f "$QEMU_DIR/$binary" ]]; then
-    sanaka_printf_ln "embed_windows.missing_required_binary" "$QEMU_DIR/$binary" >&2
+  if [[ ! -f "$QEMU_BIN_SOURCE_DIR/$binary" ]]; then
+    sanaka_printf_ln "embed_windows.missing_required_binary" "$QEMU_BIN_SOURCE_DIR/$binary" >&2
     exit 1
   fi
-  cp -f "$QEMU_DIR/$binary" "$TARGET_QEMU_DIR/$binary"
+  cp -f "$QEMU_BIN_SOURCE_DIR/$binary" "$TARGET_QEMU_DIR/$binary"
 done
 
 for tool in "${TOOLS[@]}"; do
-  if [[ -f "$QEMU_DIR/$tool" ]]; then
-    cp -f "$QEMU_DIR/$tool" "$TARGET_QEMU_DIR/$tool"
+  if [[ -f "$QEMU_BIN_SOURCE_DIR/$tool" ]]; then
+    cp -f "$QEMU_BIN_SOURCE_DIR/$tool" "$TARGET_QEMU_DIR/$tool"
   fi
 done
 
 while IFS= read -r dll_path; do
   cp -f "$dll_path" "$TARGET_QEMU_DIR/$(basename "$dll_path")"
-done < <(find "$QEMU_DIR" -maxdepth 1 -type f \( -iname '*.dll' -o -iname 'zlib1.dll' \) | sort)
+done < <(find "$QEMU_BIN_SOURCE_DIR" -maxdepth 1 -type f \( -iname '*.dll' -o -iname 'zlib1.dll' \) | sort)
 
-copy_if_exists "$QEMU_DIR/share" "$TARGET_QEMU_ROOT_DIR/share"
-copy_if_exists "$QEMU_DIR/lib" "$TARGET_QEMU_ROOT_DIR/lib"
+copy_if_exists "$QEMU_ROOT_DIR/share" "$TARGET_QEMU_ROOT_DIR/share"
+copy_if_exists "$QEMU_ROOT_DIR/lib" "$TARGET_QEMU_ROOT_DIR/lib"
 
 rm -rf "$TARGET_QEMU_ROOT_DIR/share/doc" \
   "$TARGET_QEMU_ROOT_DIR/share/man" \
@@ -89,5 +103,5 @@ rm -rf "$TARGET_QEMU_ROOT_DIR/share/doc" \
 
 echo
 sanaka_log "embed_windows.embedded_into" "$APP_DIR"
-sanaka_log "embed_windows.qemu_source" "$QEMU_DIR"
+sanaka_log "embed_windows.qemu_source" "$QEMU_ROOT_DIR (bin: $QEMU_BIN_SOURCE_DIR)"
 sanaka_log "embed_windows.qemu_target" "$TARGET_QEMU_ROOT_DIR"

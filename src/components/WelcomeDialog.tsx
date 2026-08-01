@@ -4,7 +4,7 @@ import { useT } from '../hooks/useT';
 interface WelcomeDialogProps {
   open: boolean;
   onClose: () => void;
-  onNeverRemind: () => void;
+  onDismissUntilNextVersion: () => void;
 }
 
 function CloseIcon() {
@@ -15,7 +15,7 @@ function CloseIcon() {
   );
 }
 
-export function WelcomeDialog({ open, onClose, onNeverRemind }: WelcomeDialogProps) {
+export function WelcomeDialog({ open, onClose, onDismissUntilNextVersion }: WelcomeDialogProps) {
   const t = useT();
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -83,7 +83,7 @@ export function WelcomeDialog({ open, onClose, onNeverRemind }: WelcomeDialogPro
           ) : <div className="welcome-dialog__video-fallback" aria-hidden="true" />}
         </div>
         <footer className="welcome-dialog__actions">
-          <button className="button button--secondary" type="button" onClick={onNeverRemind}>{t('app.welcome.neverRemind')}</button>
+          <button className="button button--secondary" type="button" onClick={onDismissUntilNextVersion}>{t('app.welcome.dismissUntilNextVersion')}</button>
           <button className="button button--primary" type="button" aria-label={`${t('app.welcome.close')} ${t('app.welcome.title')}`} onClick={onClose}>{t('app.welcome.close')}</button>
         </footer>
       </section>

@@ -1,5 +1,77 @@
 # GPT -> Kimi Sendback
 
+## 2026-08-02 GitHub Actions 跨平台自动发布
+
+### 实际产出
+
+- 新增 `.github/workflows/build-release.yml`，只在推送 `v*` tag 时构建 Windows x64、macOS aarch64、Linux amd64 和 Linux aarch64。
+- 四个平台使用 GitHub 原生 runner；macOS 使用 M1 runner，Linux aarch64 使用 `ubuntu-24.04-arm`。
+- 构建均显式使用 `--publish never`，最后由独立 job 创建或更新 GitHub Release，避免 electron-builder 在 tag 环境隐式发布并要求 `GH_TOKEN`。
+- Release 自动包含四个安装包、当前版本欢迎视频和统一 `SHA256SUMS.txt`。
+- QEMU 与欢迎视频从隐藏草稿 Release `build-assets-v1` 下载，QEMU 继续保持 Git 忽略；runner 会校验压缩包 SHA256，并实际执行 `qemu-system-x86_64 --version` 确认版本为 11.0.1。
+- 新增 `scripts/prepare-github-build-assets.sh` 和 `.github/BUILD_ASSETS.md`，以后只有升级 QEMU 或更换欢迎视频时需要更新构建资源。
+
+### 外部资源
+
+- 已创建隐藏草稿 Release `build-assets-v1`。
+- 已上传 macOS QEMU runtime、Windows QEMU 完整目录、校验文件和 `0.0.4-beta.mp4`，总计约 175 MB。
+- 草稿 Release 不会出现在正常发布列表，也不会影响 Latest。
+
+### 验证
+
+- workflow 通过 `actionlint`。
+- 两个 QEMU 压缩包本地 SHA256 校验通过，GitHub 上传后的服务端 digest 一致。
+- 从独立 macOS QEMU 压缩包成功构建 `sanaka-0.0.4beta-macos-aarch64.dmg`；包内 x86_64 与 aarch64 QEMU 均实际运行并报告 11.0.1，最终 App 通过严格 codesign 验证。
+- Windows 压缩包解压后通过现有 `resolveWindowsQemuLayout()` 完整性检查。
+
+## 2026-08-01 修复减弱动态效果开关状态
+
+### 实际产出
+
+- `SettingsPage` 的“减弱动态效果”开关改用已有的 `settings-motion-option__toggle` 和 `settings-motion-option__thumb` 专用样式。
+- 修复原来复用 `ios-toggle__track` 导致 `:checked` 选择器无法匹配的问题；现在打开后滑块会移动，轨道也会显示启用状态。
+- 没有修改 `reduceMotion` 的持久化、全局 `data-reduced-motion` 属性或其他开关。
+
+### 验证
+
+- `npm run typecheck` 通过。
+- 相关设置页测试通过。
+
+## 2026-08-01 白色强调色改为中性白色系
+
+### 实际产出
+
+- 修正 `src/lib/accentColor.ts` 的 `white` 预设：浅色主题改为白色、雾灰和浅银灰分层，不再使用 `#8A8A8A` 作为浅色强调背景。
+- 白色预设的浅色 `primary`、`primaryStrong`、`primarySoft`、surface、panel 和背景全部改为浅色中性值，设置抽屉展开标题不再出现整块深灰。
+- 深色主题同步改为中性灰阶，去掉原来接近纯黑的突兀层级，同时保留深色主题的对比度。
+- `AccentColorPicker` 改为直接读取 `getAccentPresetColor()`，色块预览和实际运行时 palette 不再出现两套颜色。
+
+### 验证
+
+- `npm run typecheck` 通过。
+- `src/lib/accentColor.test.ts` 新增白色预设浅色和深色变量断言。
+- `git diff --check` 通过。
+
+## 2026-08-01 pull 失败后确认 Git 强制同步
+
+### 实际产出
+
+- `scripts/pull.sh` 默认先执行 `git fetch`，再通过 `git merge --ff-only` 安全快进目标分支。
+- 本地分支不存在时，仍然直接从 `origin/<branch>` 创建。
+- 只有远程获取成功、但本地分支因分叉或工作区冲突无法安全快进时，才询问是否使用 Git 强制同步。
+- 用户确认后，脚本先保存当前 HEAD 到 `refs/sanaka-backups/pull/...`，再 stash 已跟踪和未跟踪文件，最后 `reset --hard` 到远程分支。
+- 网络失败和远程分支不存在不会显示强制同步选项；非交互环境也不会自行强制覆盖。
+
+### 没改什么
+
+- 没有加入删除仓库、重新克隆或运行 doctor 的方案。
+- 没有修改 `push.sh`、`start.sh` 或 npm 环境。
+
+### 验证
+
+- `bash -n scripts/pull.sh` 通过。
+- 隔离 Git 仓库测试通过：正常快进、分叉后拒绝覆盖、确认强制同步、备份引用、stash，以及远程分支不存在时不显示强制选项。
+
 ## 2026-08-01 恢复英文品牌标识
 
 - 中文界面的品牌副标题恢复为原来的 `Virtual Machine Studio`。
@@ -130,3 +202,47 @@
 - “关于”窗口在应用元数据尚未就绪时的兜底版本同步更新为 `0.0.4-beta`。
 - `updates/beta.toml` 更新为 `0.0.4-beta`，发布日期改为 `2026-07-30`，并写入本版八项用户向更新说明。
 - 正式版通道 `updates/release.toml` 保持 `0.0.1`，没有把 beta 版本误推给 release 用户。
+
+## 2026-08-01 欢迎窗口按版本忽略
+
+### 实际产出
+
+- 欢迎窗口按钮从“永久不再提醒”改为“至下个版本不再提醒”，英文同步为 `Do not remind until the next version`。
+- 点击后保存当前应用版本；同一版本后续启动不再显示，升级到新版本后自动重新显示。
+- 桌面端和网页端使用同一套版本判断，仍然保证每次软件启动最多显示一次。
+- 旧配置中的 `showWelcomeOnStartup: false` 会迁移为“当前版本已忽略”，避免升级本次代码后突然重新弹出；下个版本仍会恢复欢迎窗口。
+
+### 没改什么
+
+- 右上角关闭和“关闭”按钮仍只关闭本次窗口，不写入忽略设置。
+- 欢迎视频加载、循环播放、下载回退和窗口视觉样式没有修改。
+
+### 验证
+
+- `npm run typecheck` 通过。
+- 欢迎组件、设置 schema、版本判断、旧配置迁移和 App 相关测试通过：5 个测试文件，13 个测试。
+- `npm test -- --run` 通过：49 个测试文件，234 个测试。
+- `npm run build` 与 `git diff --check` 通过。
+
+## 2026-08-01 Windows QEMU 构建目录兼容
+
+### 实际产出
+
+- Windows `afterPack` 不再假定 QEMU 可执行文件必须直接位于用户选择的目录。
+- 现在统一支持三种输入：可执行文件位于目录根部、位于目录下的 `bin/`、以及用户直接选择 `bin/`。
+- 当可执行文件位于 `bin/` 时，`share` 和 `lib` 会从 QEMU 根目录复制，不再因目录层级错位漏掉固件和依赖资源。
+- 自动候选列表遇到“目录存在但内容不完整”的路径时会继续检查后续候选，不再被第一个空目录提前截断。
+- `scripts/embed-qemu-windows.sh` 同步采用相同的根目录/二进制目录拆分，并兼容 `bin`、`Bin`、`BIN`。
+
+### 没改什么
+
+- macOS 打包原有的根目录/`bin` 双结构检测保持不变。
+- 应用运行时外部 QEMU 检测原本已同时搜索用户目录和其 `bin/`，本次没有修改。
+- QEMU 二进制、`share`、`lib` 的完整性要求没有降低。
+
+### 验证
+
+- 新增 4 个 Windows QEMU 目录布局测试，覆盖根目录、`bin/`、直接选择 `bin/` 和跳过不完整候选。
+- `bash -n scripts/embed-qemu-windows.sh` 与 `npm run typecheck` 通过。
+- `npm test -- --run` 通过：50 个测试文件，238 个测试。
+- `npm run build` 与 `git diff --check` 通过。

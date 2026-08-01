@@ -42,13 +42,14 @@ describe('WelcomeDialog', () => {
     render(
       <AppStoreProvider>
         <MemoryRouter>
-          <WelcomeDialog open onClose={() => undefined} onNeverRemind={() => undefined} />
+          <WelcomeDialog open onClose={() => undefined} onDismissUntilNextVersion={() => undefined} />
         </MemoryRouter>
       </AppStoreProvider>
     );
 
     expect(await screen.findByRole('heading', { name: '欢迎使用 Sanaka' })).toBeInTheDocument();
     expect(screen.getByText('来见见新版本更新了什么吧！')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '至下个版本不再提醒' })).toBeInTheDocument();
     expect(screen.queryByText('app.welcome.title')).not.toBeInTheDocument();
   });
 });

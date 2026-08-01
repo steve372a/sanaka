@@ -27,7 +27,10 @@ describe('appSettingsSchema experimental defaults', () => {
   it('shows the welcome video for older settings', () => {
     const legacySettings = structuredClone(defaultSettings);
     delete (legacySettings as Partial<typeof legacySettings>).showWelcomeOnStartup;
+    delete (legacySettings as Partial<typeof legacySettings>).welcomeDismissedVersion;
 
-    expect(appSettingsSchema.parse(legacySettings).showWelcomeOnStartup).toBe(true);
+    const parsed = appSettingsSchema.parse(legacySettings);
+    expect(parsed.showWelcomeOnStartup).toBe(true);
+    expect(parsed.welcomeDismissedVersion).toBe('');
   });
 });

@@ -3,16 +3,11 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const packageJson = require('../package.json');
-const WINDOWS_QEMU_SYSTEM_TARGETS = [
-  'qemu-system-x86_64.exe',
-  'qemu-system-i386.exe',
-  'qemu-system-aarch64.exe',
-  'qemu-system-arm.exe',
-  'qemu-system-riscv64.exe',
-  'qemu-system-ppc.exe',
-  'qemu-system-ppc64.exe'
-];
-const WINDOWS_QEMU_REQUIRED_TOOLS = ['qemu-img.exe'];
+const {
+  WINDOWS_QEMU_SYSTEM_TARGETS,
+  WINDOWS_QEMU_REQUIRED_TOOLS,
+  findWindowsQemuLayout
+} = require('./windows-qemu-layout');
 
 function pushIfString(target, value) {
   if (typeof value === 'string' && value.trim()) {
@@ -20,7 +15,7 @@ function pushIfString(target, value) {
   }
 }
 
-function resolveWindowsQemuDir(env = process.env) {
+function makeWindowsQemuCandidates(env = process.env) {
   const candidates = [];
   pushIfString(candidates, env.SANAKA_QEMU_WIN_DIR);
   pushIfString(candidates, env.SANAKA_QEMU_DIR);
@@ -55,36 +50,7 @@ function resolveWindowsQemuDir(env = process.env) {
   pushIfString(candidates, 'C:\\Program Files\\qemu');
   pushIfString(candidates, 'C:\\Program Files\\QEMU');
 
-  return candidates.find((candidate) => fs.existsSync(candidate)) || null;
-}
-
-function validateWindowsQemuDir(qemuDir) {
-  const missingEntries = [];
-
-  for (const binary of WINDOWS_QEMU_SYSTEM_TARGETS) {
-    const source = path.join(qemuDir, binary);
-    if (!fs.existsSync(source)) {
-      missingEntries.push(source);
-    }
-  }
-
-  for (const tool of WINDOWS_QEMU_REQUIRED_TOOLS) {
-    const source = path.join(qemuDir, tool);
-    if (!fs.existsSync(source)) {
-      missingEntries.push(source);
-    }
-  }
-
-  for (const requiredDir of ['share', 'lib']) {
-    const source = path.join(qemuDir, requiredDir);
-    if (!fs.existsSync(source)) {
-      missingEntries.push(source);
-    }
-  }
-
-  if (missingEntries.length > 0) {
-    throw new Error(`[after-pack] Windows QEMU directory is incomplete: ${missingEntries.join(', ')}`);
-  }
+  return candidates;
 }
 
 async function copyIfExists(sourcePath, targetPath) {
@@ -96,11 +62,12 @@ async function copyIfExists(sourcePath, targetPath) {
 }
 
 async function embedWindowsQemu(context) {
-  const qemuDir = resolveWindowsQemuDir(context.packager?.info?._configurationEnv || process.env);
-  if (!qemuDir) {
-    throw new Error('[after-pack] Windows QEMU directory was not found. Set SANAKA_QEMU_WIN_DIR or place QEMU under ~/sanaka/qemu/win.');
+  const candidates = makeWindowsQemuCandidates(context.packager?.info?._configurationEnv || process.env);
+  const qemuLayout = findWindowsQemuLayout(candidates);
+  if (!qemuLayout) {
+    throw new Error('[after-pack] A complete Windows QEMU directory was not found. The selected directory may contain binaries directly or under bin/.');
   }
-  validateWindowsQemuDir(qemuDir);
+  const { rootDir: qemuRootDir, binDir: qemuBinDir } = qemuLayout;
 
   const resourcesDir = path.join(context.appOutDir, 'resources');
   const targetQemuRootDir = path.join(resourcesDir, 'qemu');
@@ -110,25 +77,25 @@ async function embedWindowsQemu(context) {
   await fsp.mkdir(targetQemuDir, { recursive: true });
 
   for (const binary of WINDOWS_QEMU_SYSTEM_TARGETS) {
-    const source = path.join(qemuDir, binary);
+    const source = path.join(qemuBinDir, binary);
     await fsp.copyFile(source, path.join(targetQemuDir, binary));
   }
 
   for (const tool of WINDOWS_QEMU_REQUIRED_TOOLS) {
-    const source = path.join(qemuDir, tool);
+    const source = path.join(qemuBinDir, tool);
     await fsp.copyFile(source, path.join(targetQemuDir, tool));
   }
 
-  const entries = await fsp.readdir(qemuDir, { withFileTypes: true });
+  const entries = await fsp.readdir(qemuBinDir, { withFileTypes: true });
   for (const entry of entries) {
     if (!entry.isFile()) continue;
     const lowerName = entry.name.toLowerCase();
     if (!lowerName.endsWith('.dll') && lowerName !== 'zlib1.dll') continue;
-    await fsp.copyFile(path.join(qemuDir, entry.name), path.join(targetQemuDir, entry.name));
+    await fsp.copyFile(path.join(qemuBinDir, entry.name), path.join(targetQemuDir, entry.name));
   }
 
-  await copyIfExists(path.join(qemuDir, 'share'), path.join(targetQemuRootDir, 'share'));
-  await copyIfExists(path.join(qemuDir, 'lib'), path.join(targetQemuRootDir, 'lib'));
+  await copyIfExists(path.join(qemuRootDir, 'share'), path.join(targetQemuRootDir, 'share'));
+  await copyIfExists(path.join(qemuRootDir, 'lib'), path.join(targetQemuRootDir, 'lib'));
 
   await Promise.all([
     fsp.rm(path.join(targetQemuRootDir, 'share', 'doc'), { recursive: true, force: true }),
@@ -137,7 +104,7 @@ async function embedWindowsQemu(context) {
     fsp.rm(path.join(targetQemuRootDir, 'share', 'applications'), { recursive: true, force: true })
   ]);
 
-  console.log(`[after-pack] Embedded Windows QEMU from ${qemuDir} into ${targetQemuRootDir}`);
+  console.log(`[after-pack] Embedded Windows QEMU from ${qemuRootDir} (binaries: ${qemuBinDir}) into ${targetQemuRootDir}`);
 }
 
 exports.default = async function afterPack(context) {

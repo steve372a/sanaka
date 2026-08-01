@@ -6,7 +6,7 @@ describe('accent color presets', () => {
     expect(getAccentPresetColor('purple')).toBe('#BCA0C9');
     expect(getAccentPresetColor('blue')).toBe('#88A8C5');
     expect(getAccentPresetColor('orange')).toBe('#C8A184');
-    expect(getAccentPresetColor('white')).toBe('#5A5A5A');
+    expect(getAccentPresetColor('white')).toBe('#C5C9CF');
     expect(getAccentPresetColor('green')).toBe('#85AA95');
   });
 
@@ -31,5 +31,22 @@ describe('accent color presets', () => {
       darkPrimary: '#345678',
       darkSurface: '#456789'
     });
+  });
+
+  it('keeps the white preset neutral and light in both themes', () => {
+    const custom = {
+      lightPrimary: '#123456',
+      lightSurface: '#234567',
+      darkPrimary: '#345678',
+      darkSurface: '#456789'
+    };
+
+    applyAccentColor({ mode: 'preset', preset: 'white', custom, templates: [] });
+
+    expect(document.documentElement.style.getPropertyValue('--accent-light-primary')).toBe('#C5C9CF');
+    expect(document.documentElement.style.getPropertyValue('--accent-light-primary-soft')).toBe('#F1F3F5');
+    expect(document.documentElement.style.getPropertyValue('--accent-light-panel')).toBe('#FFFFFF');
+    expect(document.documentElement.style.getPropertyValue('--accent-dark-surface')).toBe('#30343A');
+    expect(document.documentElement.style.getPropertyValue('--accent-dark-bg')).toBe('#202429');
   });
 });

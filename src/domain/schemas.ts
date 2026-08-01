@@ -41,6 +41,7 @@ export const appSettingsSchema = z.object({
   theme: z.enum(['light', 'dark', 'system']).default('system'),
   reduceMotion: z.boolean().default(false),
   showWelcomeOnStartup: z.boolean().default(true),
+  welcomeDismissedVersion: z.string().default(''),
   defaultSaveDirectory: z.string(),
   qemu: z
     .object({
