@@ -1,0 +1,216 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '20'
+  SANAKA_BUILD_ASSETS_TAG: build-assets-v1
+  SANAKA_QEMU_VERSION: 11.0.1
+
+jobs:
+  build-windows-x64:
+    name: Windows x64
+    runs-on: windows-latest
+    env:
+      SANAKA_QEMU_WIN_DIR: ${{ github.workspace }}\qemu\win
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Download build assets
+        shell: pwsh
+        run: |
+          $assetDir = Join-Path $env:RUNNER_TEMP 'sanaka-build-assets'
+          New-Item -ItemType Directory -Force -Path $assetDir | Out-Null
+          $qemuAsset = "sanaka-qemu-$env:SANAKA_QEMU_VERSION-windows-x64.zip"
+          $version = node -p "require('./package.json').version"
+          gh release download $env:SANAKA_BUILD_ASSETS_TAG --repo $env:GITHUB_REPOSITORY --pattern $qemuAsset --pattern 'SHA256SUMS.txt' --pattern "$version.mp4" --dir $assetDir
+
+          $checksumLine = Get-Content (Join-Path $assetDir 'SHA256SUMS.txt') | Where-Object { $_ -match [regex]::Escape($qemuAsset) } | Select-Object -First 1
+          if (-not $checksumLine) { throw "Missing checksum for $qemuAsset" }
+          $expected = ($checksumLine -split '\s+')[0].ToLowerInvariant()
+          $actual = (Get-FileHash (Join-Path $assetDir $qemuAsset) -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "QEMU asset checksum mismatch: expected $expected, got $actual" }
+
+          New-Item -ItemType Directory -Force -Path (Join-Path $env:GITHUB_WORKSPACE 'qemu') | Out-Null
+          Expand-Archive -Path (Join-Path $assetDir $qemuAsset) -DestinationPath (Join-Path $env:GITHUB_WORKSPACE 'qemu') -Force
+          $qemuExe = Join-Path $env:GITHUB_WORKSPACE 'qemu\win\qemu-system-x86_64.exe'
+          $qemuVersion = (& $qemuExe --version | Select-Object -First 1)
+          if ($LASTEXITCODE -ne 0 -or $qemuVersion -notmatch [regex]::Escape("version $env:SANAKA_QEMU_VERSION")) {
+            throw "Downloaded QEMU is not runnable or has the wrong version: $qemuVersion"
+          }
+          New-Item -ItemType Directory -Force -Path (Join-Path $env:GITHUB_WORKSPACE 'video') | Out-Null
+          Copy-Item (Join-Path $assetDir "$version.mp4") (Join-Path $env:GITHUB_WORKSPACE "video\$version.mp4") -Force
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build installer
+        run: npm run pack:win -- --x64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanaka-windows-x64
+          path: release/*.exe
+          if-no-files-found: error
+
+  build-macos-aarch64:
+    name: macOS aarch64
+    runs-on: macos-15
+    env:
+      SANAKA_QEMU_BUILD_DIR: ${{ github.workspace }}/qemu/macos
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Download build assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset_dir="$RUNNER_TEMP/sanaka-build-assets"
+          qemu_asset="sanaka-qemu-${SANAKA_QEMU_VERSION}-macos-aarch64.tar.gz"
+          version="$(node -p "require('./package.json').version")"
+          mkdir -p "$asset_dir" "$GITHUB_WORKSPACE/qemu" "$GITHUB_WORKSPACE/video"
+          gh release download "$SANAKA_BUILD_ASSETS_TAG" --repo "$GITHUB_REPOSITORY" --pattern "$qemu_asset" --pattern 'SHA256SUMS.txt' --pattern "$version.mp4" --dir "$asset_dir"
+          expected="$(awk -v file="$qemu_asset" '$2 == file { print $1; exit }' "$asset_dir/SHA256SUMS.txt")"
+          test -n "$expected"
+          actual="$(shasum -a 256 "$asset_dir/$qemu_asset" | awk '{ print $1 }')"
+          test "$actual" = "$expected"
+          tar -xzf "$asset_dir/$qemu_asset" -C "$GITHUB_WORKSPACE/qemu"
+          "$GITHUB_WORKSPACE/qemu/macos/bin/qemu-system-x86_64" --version | head -n 1 | grep -F "version $SANAKA_QEMU_VERSION"
+          cp "$asset_dir/$version.mp4" "$GITHUB_WORKSPACE/video/$version.mp4"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install DMG tool
+        run: brew install create-dmg
+
+      - name: Build DMG
+        run: bash ./scripts/quick-build-macos-app.sh "$SANAKA_QEMU_BUILD_DIR"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanaka-macos-aarch64
+          path: release/*.dmg
+          if-no-files-found: error
+
+  build-linux:
+    name: Linux ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: amd64
+            runner: ubuntu-latest
+            arch: x64
+          - name: aarch64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Download welcome video
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset_dir="$RUNNER_TEMP/sanaka-build-assets"
+          version="$(node -p "require('./package.json').version")"
+          mkdir -p "$asset_dir" "$GITHUB_WORKSPACE/video"
+          gh release download "$SANAKA_BUILD_ASSETS_TAG" --repo "$GITHUB_REPOSITORY" --pattern "$version.mp4" --dir "$asset_dir"
+          cp "$asset_dir/$version.mp4" "$GITHUB_WORKSPACE/video/$version.mp4"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build DEB
+        env:
+          SANAKA_SKIP_LOCAL_PROXY: '1'
+        run: bash ./scripts/package-sanaka-linux.sh '${{ matrix.arch }}'
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanaka-linux-${{ matrix.name }}
+          path: release/*.deb
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    needs:
+      - build-windows-x64
+      - build-macos-aarch64
+      - build-linux
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Add welcome video and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          gh release download "$SANAKA_BUILD_ASSETS_TAG" --repo "$GITHUB_REPOSITORY" --pattern "$version.mp4" --dir release-artifacts
+          cd release-artifacts
+          sha256sum -- * > SHA256SUMS.txt
+
+      - name: Create or update release
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          release_args=(--repo "$GITHUB_REPOSITORY" --title "Sanaka - $version")
+          if [[ "$version" == *-* ]]; then
+            release_args+=(--prerelease)
+          fi
+
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" release-artifacts/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" release-artifacts/* "${release_args[@]}" --generate-notes
+          fi
