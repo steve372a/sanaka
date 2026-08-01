@@ -1,5 +1,24 @@
 # GPT -> Kimi Sendback
 
+## 2026-08-02 修复 Windows 内置 QEMU 找不到 BIOS
+
+### 原因
+
+- Windows QEMU 构建资源包含 `bios-256k.bin`，但安装包把它放在 `resources/qemu/share/bios-256k.bin`。
+- 内置 QEMU 位于 `resources/qemu/bin`，它按标准前缀布局从 `../share/qemu` 读取数据文件，因此启动 PC 虚拟机时报 `qemu: could not load PC BIOS 'bios-256k.bin'`。
+
+### 实际产出
+
+- Windows `afterPack` 统一把 QEMU 数据文件放到 `resources/qemu/share/qemu`。
+- 同时兼容源 QEMU 包使用 `share` 或 `share/qemu` 两种目录结构，避免重复嵌套。
+- Release workflow 在上传 Windows 安装包前强制检查 `resources/qemu/share/qemu/bios-256k.bin`。
+- 新增打包测试，实际模拟完整 Windows QEMU 目录并验证 BIOS 的最终位置。
+
+### 没改什么
+
+- 没有修改虚拟机配置、BIOS 类型、QEMU 命令或外部 QEMU 路径行为。
+- 前端不需要对接修改。
+
 ## 2026-08-02 修复 Windows 安装包白屏
 
 ### 原因

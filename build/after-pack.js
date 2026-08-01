@@ -94,14 +94,20 @@ async function embedWindowsQemu(context) {
     await fsp.copyFile(path.join(qemuBinDir, entry.name), path.join(targetQemuDir, entry.name));
   }
 
-  await copyIfExists(path.join(qemuRootDir, 'share'), path.join(targetQemuRootDir, 'share'));
+  // QEMU looks for its data files below <prefix>/share/qemu. Some Windows
+  // archives expose that directory directly as `share`, while others already
+  // contain the nested `share/qemu` layout.
+  const sourceQemuShareDir = fs.existsSync(path.join(qemuRootDir, 'share', 'qemu'))
+    ? path.join(qemuRootDir, 'share', 'qemu')
+    : path.join(qemuRootDir, 'share');
+  await copyIfExists(sourceQemuShareDir, path.join(targetQemuRootDir, 'share', 'qemu'));
   await copyIfExists(path.join(qemuRootDir, 'lib'), path.join(targetQemuRootDir, 'lib'));
 
   await Promise.all([
-    fsp.rm(path.join(targetQemuRootDir, 'share', 'doc'), { recursive: true, force: true }),
-    fsp.rm(path.join(targetQemuRootDir, 'share', 'man'), { recursive: true, force: true }),
-    fsp.rm(path.join(targetQemuRootDir, 'share', 'icons'), { recursive: true, force: true }),
-    fsp.rm(path.join(targetQemuRootDir, 'share', 'applications'), { recursive: true, force: true })
+    fsp.rm(path.join(targetQemuRootDir, 'share', 'qemu', 'doc'), { recursive: true, force: true }),
+    fsp.rm(path.join(targetQemuRootDir, 'share', 'qemu', 'man'), { recursive: true, force: true }),
+    fsp.rm(path.join(targetQemuRootDir, 'share', 'qemu', 'icons'), { recursive: true, force: true }),
+    fsp.rm(path.join(targetQemuRootDir, 'share', 'qemu', 'applications'), { recursive: true, force: true })
   ]);
 
   console.log(`[after-pack] Embedded Windows QEMU from ${qemuRootDir} (binaries: ${qemuBinDir}) into ${targetQemuRootDir}`);
@@ -143,3 +149,5 @@ exports.default = async function afterPack(context) {
   setPlistValue('NSHumanReadableCopyright', 'string', 'Copyright © 2026 Sanakaprix');
   setDocumentTypeValue(0, 'LSTypeIsPackage', 'bool', 'true');
 }
+
+exports.embedWindowsQemu = embedWindowsQemu;
