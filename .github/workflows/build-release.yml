@@ -15,7 +15,8 @@ concurrency:
 env:
   NODE_VERSION: '20'
   SANAKA_BUILD_ASSETS_TAG: build-assets-v1
-  SANAKA_QEMU_VERSION: 11.0.1
+  SANAKA_QEMU_MACOS_VERSION: 11.0.1
+  SANAKA_QEMU_WINDOWS_VERSION: 11.0.50
 
 jobs:
   build-windows-x64:
@@ -39,7 +40,7 @@ jobs:
         run: |
           $assetDir = Join-Path $env:RUNNER_TEMP 'sanaka-build-assets'
           New-Item -ItemType Directory -Force -Path $assetDir | Out-Null
-          $qemuAsset = "sanaka-qemu-$env:SANAKA_QEMU_VERSION-windows-x64.zip"
+          $qemuAsset = "sanaka-qemu-$env:SANAKA_QEMU_WINDOWS_VERSION-windows-x64.zip"
           $version = node -p "require('./package.json').version"
           gh release download $env:SANAKA_BUILD_ASSETS_TAG --repo $env:GITHUB_REPOSITORY --pattern $qemuAsset --pattern 'SHA256SUMS.txt' --pattern "$version.mp4" --dir $assetDir
 
@@ -53,7 +54,7 @@ jobs:
           Expand-Archive -Path (Join-Path $assetDir $qemuAsset) -DestinationPath (Join-Path $env:GITHUB_WORKSPACE 'qemu') -Force
           $qemuExe = Join-Path $env:GITHUB_WORKSPACE 'qemu\win\qemu-system-x86_64.exe'
           $qemuVersion = (& $qemuExe --version | Select-Object -First 1)
-          if ($LASTEXITCODE -ne 0 -or $qemuVersion -notmatch [regex]::Escape("version $env:SANAKA_QEMU_VERSION")) {
+          if ($LASTEXITCODE -ne 0 -or $qemuVersion -notmatch [regex]::Escape("version $env:SANAKA_QEMU_WINDOWS_VERSION")) {
             throw "Downloaded QEMU is not runnable or has the wrong version: $qemuVersion"
           }
           New-Item -ItemType Directory -Force -Path (Join-Path $env:GITHUB_WORKSPACE 'video') | Out-Null
@@ -93,7 +94,7 @@ jobs:
         run: |
           set -euo pipefail
           asset_dir="$RUNNER_TEMP/sanaka-build-assets"
-          qemu_asset="sanaka-qemu-${SANAKA_QEMU_VERSION}-macos-aarch64.tar.gz"
+          qemu_asset="sanaka-qemu-${SANAKA_QEMU_MACOS_VERSION}-macos-aarch64.tar.gz"
           version="$(node -p "require('./package.json').version")"
           mkdir -p "$asset_dir" "$GITHUB_WORKSPACE/qemu" "$GITHUB_WORKSPACE/video"
           gh release download "$SANAKA_BUILD_ASSETS_TAG" --repo "$GITHUB_REPOSITORY" --pattern "$qemu_asset" --pattern 'SHA256SUMS.txt' --pattern "$version.mp4" --dir "$asset_dir"
@@ -102,7 +103,6 @@ jobs:
           actual="$(shasum -a 256 "$asset_dir/$qemu_asset" | awk '{ print $1 }')"
           test "$actual" = "$expected"
           tar -xzf "$asset_dir/$qemu_asset" -C "$GITHUB_WORKSPACE/qemu"
-          "$GITHUB_WORKSPACE/qemu/macos/bin/qemu-system-x86_64" --version | head -n 1 | grep -F "version $SANAKA_QEMU_VERSION"
           cp "$asset_dir/$version.mp4" "$GITHUB_WORKSPACE/video/$version.mp4"
 
       - name: Install dependencies
@@ -113,6 +113,15 @@ jobs:
 
       - name: Build DMG
         run: bash ./scripts/quick-build-macos-app.sh "$SANAKA_QEMU_BUILD_DIR"
+
+      - name: Verify packaged QEMU
+        shell: bash
+        run: |
+          set -euo pipefail
+          qemu_path="$GITHUB_WORKSPACE/release/mac-arm64/Sanaka.app/Contents/Resources/qemu/bin/qemu-system-x86_64"
+          test -x "$qemu_path"
+          qemu_version="$("$qemu_path" --version)"
+          grep -F "version $SANAKA_QEMU_MACOS_VERSION" <<< "$qemu_version"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

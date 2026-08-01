@@ -1,5 +1,18 @@
 # GPT -> Kimi Sendback
 
+## 2026-08-02 修复首次 GitHub Actions 发布失败
+
+### 实际产出
+
+- Windows 构建资源实际版本为 QEMU 11.0.50；workflow、资源文件名和资源生成脚本已改为使用真实版本，不再按 11.0.1 误判失败。
+- macOS QEMU 在解压目录中尚未具备 App 的 `Contents/Frameworks` 路径，不能提前运行；版本检查已移到 DMG 构建完成后，直接执行最终 `Sanaka.app` 内的 QEMU。
+- Linux amd64 与 Linux aarch64 在首次 run 中已经构建成功，本次不改 Linux 打包流程。
+
+### 验证
+
+- workflow 继续校验 QEMU 资源 SHA256；Windows 校验实际可执行版本，macOS 校验最终 App 内可执行版本。
+- 本次需要把修复提交推到 `main`，再移动 `v0.0.4(beta)` tag 触发新的完整构建。
+
 ## 2026-08-02 GitHub Actions 跨平台自动发布
 
 ### 实际产出
@@ -8,7 +21,7 @@
 - 四个平台使用 GitHub 原生 runner；macOS 使用 M1 runner，Linux aarch64 使用 `ubuntu-24.04-arm`。
 - 构建均显式使用 `--publish never`，最后由独立 job 创建或更新 GitHub Release，避免 electron-builder 在 tag 环境隐式发布并要求 `GH_TOKEN`。
 - Release 自动包含四个安装包、当前版本欢迎视频和统一 `SHA256SUMS.txt`。
-- QEMU 与欢迎视频从隐藏草稿 Release `build-assets-v1` 下载，QEMU 继续保持 Git 忽略；runner 会校验压缩包 SHA256，并实际执行 `qemu-system-x86_64 --version` 确认版本为 11.0.1。
+- QEMU 与欢迎视频从隐藏草稿 Release `build-assets-v1` 下载，QEMU 继续保持 Git 忽略；runner 会校验压缩包 SHA256，并执行最终 QEMU 确认 macOS 为 11.0.1、Windows 为 11.0.50。
 - 新增 `scripts/prepare-github-build-assets.sh` 和 `.github/BUILD_ASSETS.md`，以后只有升级 QEMU 或更换欢迎视频时需要更新构建资源。
 
 ### 外部资源

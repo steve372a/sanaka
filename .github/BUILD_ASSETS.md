@@ -5,7 +5,7 @@ Sanaka 的 QEMU 二进制和欢迎视频不进入 Git 仓库。Release workflow 
 固定资源：
 
 - `sanaka-qemu-11.0.1-macos-aarch64.tar.gz`
-- `sanaka-qemu-11.0.1-windows-x64.zip`
+- `sanaka-qemu-11.0.50-windows-x64.zip`
 - `SHA256SUMS.txt`
 
 每个版本还需要上传与 `package.json` 版本一致的视频，例如：

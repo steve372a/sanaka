@@ -7,7 +7,8 @@ OUTPUT_DIR="${1:-$REPO_ROOT/release-upload/build-assets-v1}"
 MAC_APP="$REPO_ROOT/release/mac-arm64/Sanaka.app"
 WIN_QEMU_DIR="$REPO_ROOT/qemu/win"
 VIDEO_PATH="$REPO_ROOT/video/$(node -p "require('$REPO_ROOT/package.json').version").mp4"
-QEMU_VERSION="${SANAKA_QEMU_VERSION:-11.0.1}"
+MACOS_QEMU_VERSION="${SANAKA_QEMU_MACOS_VERSION:-11.0.1}"
+WINDOWS_QEMU_VERSION="${SANAKA_QEMU_WINDOWS_VERSION:-11.0.50}"
 STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sanaka-build-assets.XXXXXX")"
 
 cleanup() {
@@ -39,8 +40,8 @@ cp -R "$MAC_APP/Contents/Resources/qemu/bin/." "$STAGING_DIR/macos/bin/"
 cp -R "$MAC_APP/Contents/Resources/qemu/share/qemu/." "$STAGING_DIR/macos/share/qemu/"
 find "$MAC_APP/Contents/Frameworks" -maxdepth 1 -type f -name '*.dylib' -exec cp -f {} "$STAGING_DIR/macos/lib/" \;
 
-MAC_ASSET="sanaka-qemu-${QEMU_VERSION}-macos-aarch64.tar.gz"
-WIN_ASSET="sanaka-qemu-${QEMU_VERSION}-windows-x64.zip"
+MAC_ASSET="sanaka-qemu-${MACOS_QEMU_VERSION}-macos-aarch64.tar.gz"
+WIN_ASSET="sanaka-qemu-${WINDOWS_QEMU_VERSION}-windows-x64.zip"
 
 tar -czf "$OUTPUT_DIR/$MAC_ASSET" -C "$STAGING_DIR" macos
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$WIN_QEMU_DIR" "$OUTPUT_DIR/$WIN_ASSET"
