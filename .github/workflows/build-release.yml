@@ -75,6 +75,18 @@ jobs:
           $biosPath = Join-Path $env:GITHUB_WORKSPACE 'release\win-unpacked\resources\qemu\share\qemu\bios-256k.bin'
           if (-not (Test-Path $biosPath)) { throw "Packaged QEMU BIOS is missing: $biosPath" }
           Write-Host "Packaged QEMU BIOS verified: $biosPath"
+          $qemuExe = Join-Path $env:GITHUB_WORKSPACE 'release\win-unpacked\resources\qemu\bin\qemu-system-x86_64.exe'
+          $qemuDataDir = Split-Path $biosPath -Parent
+          $stderrPath = Join-Path $env:RUNNER_TEMP 'sanaka-qemu-bios-probe.stderr.log'
+          $probe = Start-Process -FilePath $qemuExe -ArgumentList @('-L', $qemuDataDir, '-machine', 'pc', '-accel', 'tcg', '-display', 'none', '-nodefaults', '-S') -PassThru -NoNewWindow -RedirectStandardError $stderrPath
+          Start-Sleep -Seconds 2
+          if ($probe.HasExited) {
+            $probeError = if (Test-Path $stderrPath) { Get-Content $stderrPath -Raw } else { '' }
+            throw "Packaged QEMU BIOS probe exited unexpectedly: $probeError"
+          }
+          Stop-Process -Id $probe.Id -Force
+          Wait-Process -Id $probe.Id -ErrorAction SilentlyContinue
+          Write-Host "Packaged QEMU loaded the PC BIOS with -L $qemuDataDir"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

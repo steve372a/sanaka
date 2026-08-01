@@ -1,5 +1,23 @@
 # GPT -> Kimi Sendback
 
+## 2026-08-02 Windows QEMU 显式指定 BIOS 数据目录
+
+### 原因
+
+- 第一轮修复已经把 `bios-256k.bin` 放进标准的 `resources/qemu/share/qemu`，Actions 也确认文件存在，但用户机器上的 QEMU 仍未通过自身前缀推断找到该目录。
+- 文件没有损坏，问题是 QEMU 的运行时数据目录解析不可靠。
+
+### 实际产出
+
+- `QemuCommandBuilder` 会从当前实际生效的 QEMU 可执行文件解析数据目录，并显式生成 `-L <数据目录>`。
+- Windows 内置 QEMU 会使用安装包内的 `resources/qemu/share/qemu`；路径会按 Windows QEMU 参数格式规范化。
+- 测试改为模拟正式安装包的 `qemu/bin` 与 `qemu/share/qemu` 结构，同时断言 UEFI 固件和 `-L` 都指向同一个目录。
+
+### 没改什么
+
+- 没有更换 BIOS、QEMU 版本或虚拟机模板。
+- 前端不需要修改。
+
 ## 2026-08-02 修复 Windows 内置 QEMU 找不到 BIOS
 
 ### 原因

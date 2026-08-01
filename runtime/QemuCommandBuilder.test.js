@@ -938,8 +938,8 @@ describe('QemuCommandBuilder machine types', () => {
 
   it('resolves bundled Windows share firmware next to the embedded qemu directory', () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sanaka-qemu-win-'));
-    const fakeBinaryPath = path.join(tempRoot, 'qemu', 'qemu-system-x86_64.exe');
-    const shareDir = path.join(tempRoot, 'qemu', 'share');
+    const fakeBinaryPath = path.join(tempRoot, 'qemu', 'bin', 'qemu-system-x86_64.exe');
+    const shareDir = path.join(tempRoot, 'qemu', 'share', 'qemu');
     fs.mkdirSync(path.dirname(fakeBinaryPath), { recursive: true });
     fs.mkdirSync(shareDir, { recursive: true });
     fs.writeFileSync(fakeBinaryPath, '');
@@ -992,6 +992,9 @@ describe('QemuCommandBuilder machine types', () => {
     });
 
     expect(result.args).toContain(`if=pflash,format=raw,readonly=on,file=${path.join(shareDir, 'edk2-x86_64-code.fd')}`);
+    const dataDirIndex = result.args.indexOf('-L');
+    expect(dataDirIndex).toBeGreaterThanOrEqual(0);
+    expect(result.args[dataDirIndex + 1]).toBe(shareDir);
   });
 
   it('normalizes Windows file paths before embedding them into -drive suboptions', () => {

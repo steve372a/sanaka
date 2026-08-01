@@ -515,7 +515,12 @@ class QemuCommandBuilder {
 
     const displayFrontend = 'sanaka';
     const displayBackend = 'vnc';
-    const args = ['-name', machine.title, '-display', 'none'];
+    const args = [];
+    const qemuShareDir = host.platform === 'win32' ? resolveQemuShareDir(binary.path) : null;
+    if (qemuShareDir) {
+      args.push('-L', normalizeQemuFilePath(qemuShareDir, host.platform));
+    }
+    args.push('-name', machine.title, '-display', 'none');
     const machineType = machine.system?.machine_type || defaultMachineType(guestArch);
 
     if (machineType) {
