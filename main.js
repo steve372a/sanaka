@@ -113,6 +113,12 @@ function emitExportProgress(payload) {
   emitToRenderer('machine:export-progress', payload);
 }
 
+function emitUpdateDownloadProgress(payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('app:update-download-progress', payload);
+  }
+}
+
 function getUpdateService() {
   if (!updateService) {
     const forcedLocalVersion = typeof process.env.SANAKA_UPDATE_LOCAL_VERSION === 'string'
@@ -127,6 +133,10 @@ function getUpdateService() {
       saveSettings: (settings) => writeJsonFile(SETTINGS_FILE, settings),
       emitToRenderer,
       openExternal: (url) => shell.openExternal(url),
+      downloadsDirectory: app.getPath('downloads'),
+      platform: process.platform,
+      arch: process.arch,
+      emitDownloadProgress: emitUpdateDownloadProgress,
       forcedRemoteVersion,
       startupDelayMs: readPositiveIntEnv('SANAKA_UPDATE_STARTUP_DELAY_MS', undefined),
       checkIntervalMs: readPositiveIntEnv('SANAKA_UPDATE_INTERVAL_MS', undefined)
@@ -1107,6 +1117,9 @@ const ipcHandlers = {
   async checkForUpdates(_event, options) {
     return getUpdateService().checkForUpdates(options || {});
   },
+  async downloadLatestUpdate(_event, options) {
+    return getUpdateService().downloadLatest(options || {});
+  },
   async skipUpdateVersion(_event, version) {
     return getUpdateService().skipVersion(version);
   },
@@ -1651,6 +1664,7 @@ app.whenReady().then(() => {
   ipcMain.handle('app:open-external', ipcHandlers.openExternal);
   ipcMain.handle('updater:get-current-info', ipcHandlers.getUpdaterCurrentInfo);
   ipcMain.handle('updater:check-for-updates', ipcHandlers.checkForUpdates);
+  ipcMain.handle('updater:download-latest', ipcHandlers.downloadLatestUpdate);
   ipcMain.handle('updater:skip-version', ipcHandlers.skipUpdateVersion);
   ipcMain.handle('updater:open-update-page', ipcHandlers.openUpdatePage);
   ipcMain.handle('viewer:create-external-vnc-session', ipcHandlers.createExternalVncSession);

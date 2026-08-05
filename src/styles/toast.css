@@ -1,0 +1,34 @@
+.toast--success {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 16px 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--success) 24%, var(--line));
+  background: color-mix(in srgb, var(--surface-container-highest) 94%, var(--success) 6%);
+  color: var(--text);
+  text-align: left;
+}
+
+.toast__icon {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  place-items: center;
+  color: var(--success);
+}
+
+.toast__icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.toast--success .toast__message {
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+}
+
+html[data-reduced-motion='true'] .toast {
+  transition: opacity 0.16s ease;
+}

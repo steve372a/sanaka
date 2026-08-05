@@ -610,9 +610,11 @@ export interface ElectronApi {
   updater: {
     getCurrentInfo: () => Promise<UpdateCurrentInfo>;
     checkForUpdates: (options?: { silent?: boolean }) => Promise<UpdateCheckResult>;
+    downloadLatest?: (options?: { force?: boolean }) => Promise<UpdateDownloadResult>;
     skipVersion: (version: string) => Promise<{ ok: true; skippedVersion: string }>;
     openUpdatePage: (url: string) => Promise<{ ok: true }>;
     onUpdateAvailable: (handler: (payload: UpdateAvailableEvent) => void) => () => void;
+    onDownloadProgress?: (handler: (payload: UpdateDownloadProgress) => void) => () => void;
   };
   viewer?: {
     createExternalVncSession?: (request: CreateExternalVncSessionRequest) => Promise<ExternalVncSession>;
@@ -661,6 +663,37 @@ export interface UpdateManifest {
   url: string;
   title?: string;
   notes: string;
+  assets?: UpdateAsset[];
+}
+
+export interface UpdateAsset {
+  platform: string;
+  arch: string;
+  url: string;
+  fileName: string;
+  sha256: string;
+  size?: number;
+}
+
+export interface UpdateDownloadProgress {
+  status: 'downloading' | 'completed' | 'failed';
+  version: string;
+  fileName: string;
+  receivedBytes: number;
+  totalBytes: number;
+  percent: number;
+  path?: string;
+  error?: string;
+}
+
+export interface UpdateDownloadResult {
+  ok: boolean;
+  code?: 'NO_UPDATE' | 'MANIFEST_UNAVAILABLE' | 'ASSET_UNAVAILABLE' | 'DOWNLOAD_DIRECTORY_UNAVAILABLE' | 'DOWNLOAD_FAILED';
+  version?: string;
+  fileName?: string;
+  path?: string;
+  receivedBytes?: number;
+  error?: string;
 }
 
 export interface UpdateCheckResult extends UpdateCurrentInfo {

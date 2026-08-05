@@ -23,6 +23,11 @@ describe('template machine creation', () => {
     expect(machine.system.cpu_cores).toBe(2);
   });
 
+  it('keeps the q35 machine type for Windows 10', () => {
+    const machine = createMachineFromTemplate('win11');
+    expect(machine.system.machine_type).toBe('pc-q35-9.2');
+  });
+
   it('provides a compatibility-first Windows XP template', () => {
     const machine = createMachineFromTemplate('winxp');
     expect(machine.template.label).toBe('Windows XP');

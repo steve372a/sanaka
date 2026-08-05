@@ -1,0 +1,86 @@
+.builder-floating-save {
+  position: fixed;
+  right: calc(28px + env(safe-area-inset-right, 0px));
+  bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--primary-control-strong) 82%, var(--surface-container-highest));
+  color: var(--primary-control-text);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--text) 22%, transparent), 0 2px 6px color-mix(in srgb, var(--text) 14%, transparent);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(18px) scale(.82);
+  pointer-events: none;
+  transition:
+    opacity .22s ease,
+    transform .28s var(--ease-standard),
+    visibility 0s linear .28s,
+    background-color .18s ease,
+    box-shadow .18s ease;
+}
+
+.builder-floating-save svg {
+  width: 25px;
+  height: 25px;
+}
+
+.builder-floating-save--visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+
+.builder-floating-save--visible:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary-control-strong) 92%, var(--surface-container-highest));
+  box-shadow: 0 11px 24px color-mix(in srgb, var(--text) 24%, transparent), 0 3px 8px color-mix(in srgb, var(--text) 16%, transparent);
+  transform: translateY(-2px) scale(1.025);
+}
+
+.builder-floating-save--visible:active:not(:disabled) {
+  transform: translateY(1px) scale(.94);
+}
+
+.builder-floating-save:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--primary-strong) 45%, transparent);
+  outline-offset: 4px;
+}
+
+.builder-floating-save:disabled {
+  opacity: .42;
+  cursor: not-allowed;
+}
+
+:root[data-reduced-motion="true"] .builder-floating-save {
+  transform: none;
+  transition: opacity .18s ease, visibility 0s linear .18s;
+}
+
+:root[data-reduced-motion="true"] .builder-floating-save--visible {
+  transition-delay: 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .builder-floating-save {
+    transform: none;
+    transition: opacity .18s ease, visibility 0s linear .18s;
+  }
+
+  .builder-floating-save--visible {
+    transition-delay: 0s;
+  }
+}
+
+@media (max-width: 700px) {
+  .builder-floating-save {
+    right: calc(18px + env(safe-area-inset-right, 0px));
+    bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  }
+}

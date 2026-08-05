@@ -479,7 +479,8 @@ export function DiskImageManager({ isOpen, onClose, existingDisks, onDisksChange
       }
     };
     onDisksChange([...existingDisks, newDisk]);
-  }, [bundlePath, existingDisks, onDisksChange, defaultInterface]);
+    showToast(t('diskManager.toast.imported'));
+  }, [bundlePath, existingDisks, onDisksChange, defaultInterface, showToast, t]);
 
   const handleWebDiskSelected = useCallback((relativePath: string) => {
     const newDisk = {
@@ -495,7 +496,8 @@ export function DiskImageManager({ isOpen, onClose, existingDisks, onDisksChange
     };
     onDisksChange([...existingDisks, newDisk]);
     setWebPickerOpen(false);
-  }, [defaultInterface, existingDisks, onDisksChange]);
+    showToast(t('diskManager.toast.imported'));
+  }, [defaultInterface, existingDisks, onDisksChange, showToast, t]);
 
   const handleAddLocalImages = useCallback(() => {
     const imagesToAdd = localImages.filter(img => selectedLocalImages.has(img.path));
@@ -517,7 +519,10 @@ export function DiskImageManager({ isOpen, onClose, existingDisks, onDisksChange
 
     onDisksChange([...existingDisks, ...newDisks]);
     setSelectedLocalImages(new Set());
-  }, [localImages, selectedLocalImages, existingDisks, onDisksChange, defaultInterface]);
+    if (newDisks.length > 0) {
+      showToast(t('diskManager.toast.imported'));
+    }
+  }, [localImages, selectedLocalImages, existingDisks, onDisksChange, defaultInterface, showToast, t]);
 
   const handleCreateImage = useCallback(async () => {
     const normalizedName = newImageName.trim();
@@ -1258,6 +1263,7 @@ export function DiskImageManager({ isOpen, onClose, existingDisks, onDisksChange
         message={toastMessage}
         visible={toastVisible}
         onClose={hideToast}
+        tone="success"
       />
     </div>
   );

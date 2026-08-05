@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { DEFAULT_MANIFEST_URLS, UpdateService, compareVersions, detectUpdateChannel, isManifestCompatible } from './UpdateService';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { DEFAULT_MANIFEST_URLS, UpdateService, compareVersions, detectUpdateChannel, isManifestCompatible, normalizeManifest } from './UpdateService';
 
 describe('UpdateService helpers', () => {
   it('detects beta channel from version', () => {
@@ -17,6 +20,25 @@ describe('UpdateService helpers', () => {
     expect(isManifestCompatible('release', 'beta')).toBe(false);
     expect(isManifestCompatible('beta', 'beta')).toBe(true);
     expect(isManifestCompatible('beta', 'release')).toBe(true);
+  });
+
+  it('normalizes platform update assets', () => {
+    const manifest = normalizeManifest({
+      version: '0.0.4-beta',
+      channel: 'beta',
+      url: 'https://example.com/release',
+      notes: 'release',
+      assets: [{
+        platform: 'darwin',
+        arch: 'arm64',
+        file_name: 'sanaka.dmg',
+        url: 'https://example.com/sanaka.dmg',
+        sha256: 'a'.repeat(64),
+        size: 123
+      }]
+    });
+
+    expect(manifest.assets).toEqual([expect.objectContaining({ platform: 'darwin', arch: 'arm64', fileName: 'sanaka.dmg', size: 123 })]);
   });
 });
 
@@ -154,5 +176,57 @@ describe('UpdateService', () => {
     const result = await service.checkForUpdates({ silent: true });
     expect(result.hasUpdate).toBe(true);
     expect(result.latest?.version).toBe('9.9.9');
+  });
+
+  it('only re-downloads the installed version when force is enabled', async () => {
+    const packageBody = Buffer.from('sanaka update package');
+    const digest = 'd726363e83dd78d290e9fd6316fd2277d4a7d48c2749e3a39a9f5ea967cbeb73';
+    const manifestText = `version = "0.0.4-beta"
+channel = "beta"
+mandatory = false
+url = "https://example.com/release"
+notes = "release"
+
+[[assets]]
+platform = "darwin"
+arch = "arm64"
+file_name = "sanaka.dmg"
+url = "https://example.com/sanaka.dmg"
+sha256 = "${digest}"
+size = ${packageBody.length}
+`;
+    const downloadsDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'sanaka-update-'));
+    const emitDownloadProgress = vi.fn();
+    const fetchImpl = vi.fn(async (url) => {
+      if (url.endsWith('.dmg')) {
+        return new Response(packageBody, { status: 200, headers: { 'content-length': String(packageBody.length) } });
+      }
+      return { ok: true, status: 200, text: async () => manifestText };
+    });
+    const service = new UpdateService({
+      appVersion: '0.0.4-beta',
+      loadSettings: vi.fn(async () => ({ updates: { skippedVersion: '' } })),
+      saveSettings: vi.fn(),
+      emitToRenderer: vi.fn(),
+      openExternal: vi.fn(),
+      fetchImpl,
+      manifestUrls: { beta: 'https://example.com/beta.toml', release: 'https://example.com/release.toml' },
+      downloadsDirectory,
+      platform: 'darwin',
+      arch: 'arm64',
+      emitDownloadProgress
+    });
+
+    try {
+      expect(await service.downloadLatest()).toEqual(expect.objectContaining({ ok: false, code: 'NO_UPDATE' }));
+
+      const result = await service.downloadLatest({ force: true });
+
+      expect(result).toEqual(expect.objectContaining({ ok: true, fileName: 'sanaka.dmg' }));
+      expect(await fs.readFile(result.path)).toEqual(packageBody);
+      expect(emitDownloadProgress).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'completed', percent: 100 }));
+    } finally {
+      await fs.rm(downloadsDirectory, { recursive: true, force: true });
+    }
   });
 });

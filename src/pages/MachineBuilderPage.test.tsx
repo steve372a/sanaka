@@ -1,10 +1,13 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useEffect, useRef } from 'react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AppStoreProvider } from '../store/AppStore';
+import { AppStoreProvider, useAppStore } from '../store/AppStore';
 import { defaultSettings } from '../domain/defaults';
-import { MachineBuilderPage } from './MachineBuilderPage';
+import { createMachineFromTemplate } from '../domain/templates';
+import { serializeSakaMachine } from '../lib/saka';
+import { defaultDiskInterfaceForMachine, MachineBuilderPage } from './MachineBuilderPage';
 
 const runtimeEnvironment = {
   available: true,
@@ -161,7 +164,24 @@ function mockElectronApi() {
   return { createMachineBundle };
 }
 
+function ExistingMachineEditor({ path }: { path: string }) {
+  const { ready, draft, openSakaByPath } = useAppStore();
+  const openedRef = useRef(false);
+
+  useEffect(() => {
+    if (!ready || openedRef.current) return;
+    openedRef.current = true;
+    void openSakaByPath(path);
+  }, [openSakaByPath, path, ready]);
+
+  return draft ? <MachineBuilderPage /> : <div>loading machine</div>;
+}
+
 describe('MachineBuilderPage', () => {
+  it('uses IDE as the default disk interface for Windows 10', () => {
+    expect(defaultDiskInterfaceForMachine(createMachineFromTemplate('win11'))).toBe('ide');
+  });
+
   beforeEach(() => {
     mockElectronApi();
   });
@@ -200,6 +220,49 @@ describe('MachineBuilderPage', () => {
     );
 
     expect(await screen.findByDisplayValue('新虚拟机')).toBeInTheDocument();
+  });
+
+  it('shows the floating primary action after scrolling and uses the same save flow', async () => {
+    const { createMachineBundle } = mockElectronApi();
+    const user = userEvent.setup();
+    const { container } = render(
+      <AppStoreProvider>
+        <MemoryRouter initialEntries={['/machines/new']}>
+          <div className="app-shell__content">
+            <Routes>
+              <Route path="/machines/new" element={<MachineBuilderPage />} />
+              <Route path="/machines/:machineId" element={<div>details</div>} />
+            </Routes>
+          </div>
+        </MemoryRouter>
+      </AppStoreProvider>
+    );
+
+    await screen.findByDisplayValue('新虚拟机');
+    const scrollContainer = container.querySelector<HTMLElement>('.app-shell__content');
+    const floatingSave = container.querySelector<HTMLButtonElement>('.builder-floating-save');
+    expect(scrollContainer).not.toBeNull();
+    expect(floatingSave).not.toBeNull();
+    expect(floatingSave).not.toHaveClass('builder-floating-save--visible');
+    expect(floatingSave).toHaveAttribute('tabindex', '-1');
+
+    scrollContainer!.scrollTop = 40;
+    fireEvent.scroll(scrollContainer!);
+
+    await waitFor(() => expect(floatingSave).toHaveClass('builder-floating-save--visible'));
+    expect(floatingSave).toHaveAttribute('tabindex', '0');
+
+    scrollContainer!.scrollTop = 0;
+    fireEvent.scroll(scrollContainer!);
+    await waitFor(() => expect(floatingSave).not.toHaveClass('builder-floating-save--visible'));
+    expect(floatingSave).toHaveAttribute('tabindex', '-1');
+
+    scrollContainer!.scrollTop = 40;
+    fireEvent.scroll(scrollContainer!);
+    await waitFor(() => expect(floatingSave).toHaveClass('builder-floating-save--visible'));
+    await user.click(floatingSave!);
+
+    await waitFor(() => expect(createMachineBundle).toHaveBeenCalledTimes(1));
   });
 
   it('uses the unique machine name returned by the bundle creator', async () => {
@@ -271,6 +334,110 @@ describe('MachineBuilderPage', () => {
     expect(screen.getByRole('option', { name: 'HVF（macOS）' })).toBeInTheDocument();
   });
 
+  it('does not replace saved Linux machine settings when the editor mounts on Windows', async () => {
+    const machinePath = 'D:\\Virtual Machines\\Linux.saka';
+    const linuxMachine = createMachineFromTemplate('linux');
+    linuxMachine.system.accelerator = 'whpx';
+    linuxMachine.system.machine_type = 'pc-q35-9.1';
+    window.electronAPI.files.readSaka = vi.fn(async () => ({
+      path: machinePath,
+      configPath: `${machinePath}\\machine.svm`,
+      content: serializeSakaMachine(linuxMachine),
+      legacySingleFile: false
+    }));
+    window.electronAPI.app.getMetadata = vi.fn(async () => ({
+      name: 'Sanaka',
+      version: '1.0.0',
+      platform: 'win32',
+      arch: 'x64',
+      userDataPath: 'C:\\Users\\Tester\\AppData\\Roaming\\Sanaka',
+      documentsPath: 'C:\\Users\\Tester\\Documents',
+      defaultMachineDirectory: 'C:\\Users\\Tester\\Documents\\Sanaka'
+    }));
+
+    const view = render(
+      <AppStoreProvider>
+        <MemoryRouter initialEntries={['/machines/new']}>
+          <ExistingMachineEditor path={machinePath} />
+        </MemoryRouter>
+      </AppStoreProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '加速方式' })).toHaveTextContent('WHPX');
+      expect(screen.getByRole('button', { name: '机器类型' })).toHaveTextContent('pc-q35-9.1');
+    });
+
+    view.unmount();
+    render(
+      <AppStoreProvider>
+        <MemoryRouter initialEntries={['/machines/new']}>
+          <ExistingMachineEditor path={machinePath} />
+        </MemoryRouter>
+      </AppStoreProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '加速方式' })).toHaveTextContent('WHPX');
+      expect(screen.getByRole('button', { name: '机器类型' })).toHaveTextContent('pc-q35-9.1');
+    });
+  });
+
+  it('persists accelerator and machine type selected in the Linux editor across a full reopen', async () => {
+    const machinePath = 'D:\\Virtual Machines\\Linux.saka';
+    const linuxMachine = createMachineFromTemplate('linux');
+    let persistedContent = serializeSakaMachine(linuxMachine);
+    window.electronAPI.files.readSaka = vi.fn(async () => ({
+      path: machinePath,
+      configPath: `${machinePath}\\machine.svm`,
+      content: persistedContent,
+      legacySingleFile: false
+    }));
+    const saveSaka = vi.fn(async (_path: string, content: string) => {
+      persistedContent = content;
+      return { path: machinePath, configPath: `${machinePath}\\machine.svm` };
+    });
+    window.electronAPI.files.saveSaka = saveSaka;
+    const user = userEvent.setup();
+
+    const firstView = render(
+      <AppStoreProvider>
+        <MemoryRouter initialEntries={['/machines/new']}>
+          <Routes>
+            <Route path="/machines/new" element={<ExistingMachineEditor path={machinePath} />} />
+            <Route path="/machines/:machineId" element={<div>saved details</div>} />
+          </Routes>
+        </MemoryRouter>
+      </AppStoreProvider>
+    );
+
+    await user.click(await screen.findByRole('button', { name: '加速方式' }));
+    await user.click(screen.getByRole('option', { name: 'WHPX（Windows）' }));
+    await user.click(screen.getByRole('button', { name: '机器类型' }));
+    await user.click(screen.getByRole('option', { name: 'pc-q35-9.1' }));
+    await user.click(screen.getByRole('button', { name: '保存更改' }));
+
+    await waitFor(() => {
+      expect(saveSaka).toHaveBeenCalledTimes(1);
+      expect(persistedContent).toContain('accelerator = "whpx"');
+      expect(persistedContent).toContain('machine_type = "pc-q35-9.1"');
+    });
+
+    firstView.unmount();
+    render(
+      <AppStoreProvider>
+        <MemoryRouter initialEntries={['/machines/new']}>
+          <ExistingMachineEditor path={machinePath} />
+        </MemoryRouter>
+      </AppStoreProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '加速方式' })).toHaveTextContent('WHPX');
+      expect(screen.getByRole('button', { name: '机器类型' })).toHaveTextContent('pc-q35-9.1');
+    });
+  });
+
   it('shows QEMU option values without annotations when raw display is enabled', async () => {
     window.electronAPI.settings.load = vi.fn(async () => ({
       ...defaultSettings,
@@ -319,10 +486,10 @@ describe('MachineBuilderPage', () => {
 
     await user.click(await screen.findByRole('button', { name: 'QEMU 架构' }));
 
-    expect(screen.getByRole('option', { name: 'none' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'x86_64' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'aarch64' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'ppc64' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '未选择' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '64 位 x86 (x86_64)' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'ARM64 (AArch64)' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '64 位 PowerPC (ppc64)' })).toBeInTheDocument();
   });
 
   it('shows architecture-aware gpu options for aarch64 linux machines', async () => {
@@ -339,7 +506,12 @@ describe('MachineBuilderPage', () => {
     );
 
     await user.click(await screen.findByRole('button', { name: 'QEMU 架构' }));
-    await user.click(await screen.findByRole('option', { name: 'aarch64' }));
+    await user.click(await screen.findByRole('option', { name: 'ARM64 (AArch64)' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '机器类型' })).toHaveTextContent('virt');
+      expect(screen.getByRole('checkbox', { name: 'UEFI' })).toBeChecked();
+    });
 
     await user.click(await screen.findByRole('button', { name: '显卡' }));
 
@@ -348,5 +520,24 @@ describe('MachineBuilderPage', () => {
     expect(screen.queryByRole('option', { name: 'qxl' })).not.toBeInTheDocument();
     expect(screen.queryByRole('option', { name: 'virtio-vga' })).not.toBeInTheDocument();
     expect(screen.queryByRole('option', { name: 'vmware-svga' })).not.toBeInTheDocument();
+  });
+
+  it('warns when selecting an architecture that usually needs extra configuration', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <AppStoreProvider>
+        <MemoryRouter initialEntries={['/machines/new?template=linux']}>
+          <Routes>
+            <Route path="/machines/new" element={<MachineBuilderPage />} />
+          </Routes>
+        </MemoryRouter>
+      </AppStoreProvider>
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'QEMU 架构' }));
+    await user.click(await screen.findByRole('option', { name: '64 位 RISC-V (riscv64)' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('此架构可能需要额外配置。');
   });
 });

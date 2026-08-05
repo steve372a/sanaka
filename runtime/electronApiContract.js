@@ -73,9 +73,11 @@ const electronApiContract = {
   updater: {
     getCurrentInfo: { type: 'invoke', channel: 'updater:get-current-info' },
     checkForUpdates: { type: 'invoke', channel: 'updater:check-for-updates' },
+    downloadLatest: { type: 'invoke', channel: 'updater:download-latest' },
     skipVersion: { type: 'invoke', channel: 'updater:skip-version' },
     openUpdatePage: { type: 'invoke', channel: 'updater:open-update-page' },
-    onUpdateAvailable: { type: 'event', channel: 'app:update-available' }
+    onUpdateAvailable: { type: 'event', channel: 'app:update-available' },
+    onDownloadProgress: { type: 'event', channel: 'app:update-download-progress' }
   },
   viewer: {
     createExternalVncSession: { type: 'invoke', channel: 'viewer:create-external-vnc-session' },

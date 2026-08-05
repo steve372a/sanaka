@@ -1,0 +1,87 @@
+@media (max-width: 760px) and (orientation: portrait) {
+  .console-topbar--mobile {
+    height: 56px;
+    padding: 0 10px;
+  }
+
+  .console-topbar--mobile .console-topbar__left,
+  .console-topbar--mobile .console-topbar__right {
+    gap: 4px;
+  }
+
+  .console-topbar--mobile .console-topbar__btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    flex: 0 0 44px;
+  }
+
+  .console-topbar--mobile .console-topbar__btn svg {
+    width: 21px;
+    height: 21px;
+  }
+
+  .console-topbar--mobile .console-topbar__title {
+    max-width: 120px;
+    font-size: 0.88rem;
+    color: var(--console-text-muted);
+  }
+
+  .console-topbar--mobile .console-topbar__dot {
+    width: 8px;
+    height: 8px;
+  }
+
+  .console-viewport {
+    margin-top: 56px;
+  }
+
+  .console-viewport--mobile {
+    margin-bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .console-mobile-toolbar {
+    height: calc(76px + env(safe-area-inset-bottom, 0px));
+    box-sizing: border-box;
+    padding: 4px 10px env(safe-area-inset-bottom, 0px);
+    background: color-mix(in srgb, var(--console-surface-alt) 96%, transparent);
+    border-top-color: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 -8px 24px rgba(7, 5, 12, 0.22);
+  }
+
+  .console-mobile-toolbar__btn {
+    width: 60px;
+    height: 64px;
+    gap: 5px;
+    color: var(--console-text-muted);
+  }
+
+  .console-mobile-toolbar__btn svg {
+    width: 25px;
+    height: 25px;
+  }
+
+  .console-mobile-toolbar__label {
+    font-size: 0.68rem;
+    color: var(--console-text-subtle);
+  }
+
+  .console-mobile-toolbar__btn--active {
+    color: var(--console-text);
+    background: rgba(255, 255, 255, 0.1);
+  }
+}
+
+@media (max-width: 360px) and (orientation: portrait) {
+  .console-topbar--mobile .console-topbar__title {
+    max-width: 92px;
+  }
+
+  .console-mobile-toolbar {
+    padding-inline: 4px;
+  }
+
+  .console-mobile-toolbar__btn {
+    width: 56px;
+  }
+}

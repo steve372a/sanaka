@@ -2,10 +2,11 @@ import { useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { MachineVisual } from '../components/MachineVisual';
 import { StatusChip } from '../components/Field';
+import type { SakaMachine } from '../domain/schemas';
 import { useT } from '../hooks/useT';
 import type { FullscreenTransitionOrigin } from '../lib/fullscreenTransition';
-import { makeAudioHint, makeDisplayHint } from '../lib/machine';
 import { consoleRoute } from '../lib/routes';
+import { isSameMachinePath } from '../lib/machinePath';
 import { getWebResourceDisplayName, isWebMode } from '../lib/webMode';
 import { useAppStore } from '../store/AppStore';
 
@@ -132,6 +133,37 @@ function ConfigItem({ icon, label, value }: ConfigItemProps) {
   );
 }
 
+function formatArchitecture(machine: SakaMachine, t: ReturnType<typeof useT>) {
+  const label = t(`builder.architectures.${machine.system.arch}`);
+  if (machine.system.arch === 'aarch64' && machine.system.uefi) {
+    return `${label} · ${t('details.armUefi')}`;
+  }
+  if (machine.system.uefi) {
+    return `${label} · UEFI`;
+  }
+  return label;
+}
+
+function formatAudioBackend(value: SakaMachine['advanced']['audio_backend']) {
+  const names: Partial<Record<SakaMachine['advanced']['audio_backend'], string>> = {
+    coreaudio: 'CoreAudio',
+    directsound: 'DirectSound',
+    pulseaudio: 'PulseAudio',
+    pipewire: 'PipeWire',
+    spice: 'SPICE'
+  };
+  return names[value] ?? value;
+}
+
+function formatNetworkCard(value: string) {
+  const names: Record<string, string> = {
+    rtl8139: 'RTL8139',
+    e1000: 'Intel E1000',
+    'virtio-net-pci': 'VirtIO'
+  };
+  return names[value] ?? value;
+}
+
 export function MachineDetailsPage() {
   const {
     draft,
@@ -150,7 +182,7 @@ export function MachineDetailsPage() {
 
   useEffect(() => {
     const pathParam = params.get('path');
-    if (pathParam && draft?.filePath !== pathParam) {
+    if (pathParam && !isSameMachinePath(draft?.filePath, pathParam)) {
       void openSakaByPath(pathParam).then((result) => {
         if (!result) {
           navigate('/', { replace: true });
@@ -178,7 +210,17 @@ export function MachineDetailsPage() {
   const machineStatus = runtimeState?.status;
   const isMachineRunning = machineStatus === 'running' || machineStatus === 'starting';
   const qemuAvailable = runtimeEnvironment?.available ?? false;
-  const audioHint = makeAudioHint(machine.display.frontend, machine.display.sanaka?.backend ?? settings.runtimeDefaults.displayBackendHint, machine.advanced.audio_backend);
+  const displayHint = machine.display.frontend === 'sanaka'
+    ? t('details.displaySanakaVnc')
+    : machine.display.frontend.toUpperCase();
+  const audioHint = machine.advanced.audio_backend === 'auto'
+    ? t('details.audioAutomatic')
+    : t('details.audioBackend', { backend: formatAudioBackend(machine.advanced.audio_backend) });
+  const networkHint = machine.network.enabled
+    ? t(machine.network.mode === 'bridge' ? 'details.networkBridge' : 'details.networkUser', {
+      card: formatNetworkCard(machine.network.card)
+    })
+    : t('common.disabled');
 
   const handlePlayClick = (origin: FullscreenTransitionOrigin) => {
     if (!draft.filePath || !qemuAvailable) return;
@@ -271,7 +313,7 @@ export function MachineDetailsPage() {
             <ConfigItem
               icon={<DisplayIcon />}
               label={t('details.display')}
-              value={makeDisplayHint(machine)}
+              value={displayHint}
             />
             <ConfigItem
               icon={<AudioIcon />}
@@ -281,7 +323,7 @@ export function MachineDetailsPage() {
             <ConfigItem
               icon={<NetworkIcon />}
               label={t('details.network')}
-              value={machine.network.enabled ? `${machine.network.mode} / ${machine.network.card}` : t('common.disabled')}
+              value={networkHint}
             />
             <ConfigItem
               icon={<MediaIcon />}
@@ -291,12 +333,12 @@ export function MachineDetailsPage() {
             <ConfigItem
               icon={<DiskIcon />}
               label={t('details.disks')}
-              value={String(machine.disks.length)}
+              value={t('details.diskCount', { count: machine.disks.length })}
             />
             <ConfigItem
               icon={<ArchIcon />}
               label={t('details.architecture')}
-              value={machine.system.arch}
+              value={formatArchitecture(machine, t)}
             />
           </div>
         </section>

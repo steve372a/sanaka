@@ -217,6 +217,24 @@ describe('MachineDetailsPage', () => {
     expect(screen.getAllByRole('button', { name: '编辑配置' })).toHaveLength(1);
   });
 
+  it('shows direct, localized configuration summaries', async () => {
+    mockElectronApi();
+
+    render(
+      <AppStoreProvider>
+        <MemoryRouter initialEntries={[`/machines/machine-1?path=${encodeURIComponent(machinePath)}`]}>
+          <RoutedShell />
+        </MemoryRouter>
+      </AppStoreProvider>
+    );
+
+    expect(await screen.findByText('Sanaka 控制台 · VNC')).toBeInTheDocument();
+    expect(screen.getByText('跟随系统自动选择')).toBeInTheDocument();
+    expect(screen.getByText(/用户网络 ·/)).toBeInTheDocument();
+    expect(screen.getByText(/块磁盘$/)).toBeInTheDocument();
+    expect(screen.getByText(/64 位 x86 \(x86_64\)/)).toBeInTheDocument();
+  });
+
   it('preserves machine identity when changing templates during editing', async () => {
     mockElectronApi();
     const user = userEvent.setup();

@@ -1,0 +1,121 @@
+.update-force-option {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 14px 15px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-container-low);
+  cursor: pointer;
+  transition: background 0.18s var(--ease-standard), border-color 0.18s var(--ease-standard);
+}
+
+.update-force-option:hover {
+  background: var(--surface-container);
+  border-color: var(--line-strong);
+}
+
+.update-force-option--checked {
+  background: color-mix(in srgb, var(--primary-soft) 55%, var(--surface-container-low));
+  border-color: color-mix(in srgb, var(--primary-strong) 28%, var(--line));
+}
+
+.update-force-option__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.update-force-option__control {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--input-surface);
+  color: var(--primary-control-text);
+  transition: background 0.18s var(--ease-standard), border-color 0.18s var(--ease-standard), transform 0.18s var(--ease-standard);
+}
+
+.update-force-option__input:focus-visible + .update-force-option__control {
+  outline: 2px solid var(--primary-strong);
+  outline-offset: 3px;
+}
+
+.update-force-option__input:checked + .update-force-option__control {
+  background: var(--primary-control-strong);
+  border-color: var(--primary-control-strong);
+  transform: scale(1.04);
+}
+
+.update-force-option__input:disabled ~ * {
+  opacity: 0.55;
+}
+
+.update-force-option__control svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.update-force-option__copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.update-force-option__copy strong {
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.update-force-option__copy small {
+  color: var(--muted);
+  font-size: 0.73rem;
+  line-height: 1.45;
+}
+
+.update-download__progress {
+  position: absolute;
+  inset: 6px 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-container-high);
+}
+
+.update-download__progress span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary-control-strong);
+  transition: width 0.18s linear;
+}
+
+.update-settings__actions {
+  gap: 10px;
+}
+
+@media (max-width: 620px) {
+  .update-settings__actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .update-force-option,
+  .update-force-option__control,
+  .update-download__progress span {
+    transition: opacity 0.18s ease;
+  }
+}

@@ -138,7 +138,7 @@ function mockElectronApi() {
 }
 
 function StoreHarness() {
-  const { ready, draft, openSakaByPath, recents, updateDraft, startMachine, importTemplateFromDialog, activity, transition, triggerTransition } = useAppStore();
+  const { ready, draft, openSakaByPath, recents, updateDraft, saveDraft, startMachine, forceStopMachine, importTemplateFromDialog, activity, transition, triggerTransition } = useAppStore();
 
   if (!ready) {
     return <div>loading</div>;
@@ -167,8 +167,33 @@ function StoreHarness() {
       >
         set-tcg
       </button>
+      <button
+        type="button"
+        onClick={() =>
+          updateDraft((current) => ({
+            ...current,
+            system: {
+              ...current.system,
+              accelerator: 'whpx',
+              machine_type: 'pc-q35-9.1'
+            }
+          }))
+        }
+        disabled={!draft}
+      >
+        set-windows-linux-values
+      </button>
       <button type="button" onClick={() => void startMachine(machinePath)} disabled={!draft}>
         start
+      </button>
+      <button type="button" onClick={() => void saveDraft('save')} disabled={!draft}>
+        save
+      </button>
+      <button type="button" onClick={() => void startMachine('d:/virtual machines/linux.saka/machine.svm')} disabled={!draft}>
+        start-windows-path-variant
+      </button>
+      <button type="button" onClick={() => void forceStopMachine('machine-1')} disabled={!draft}>
+        force-stop
       </button>
       <button type="button" onClick={() => void importTemplateFromDialog()}>
         import-template
@@ -183,6 +208,8 @@ function StoreHarness() {
       </button>
       <div>{activity[0]?.title ?? ''}</div>
       <div data-testid="recent-titles">{recents.map((item) => item.title).join('|')}</div>
+      <div data-testid="draft-accelerator">{draft ? `${draft.machine.system.accelerator}:${draft.dirty}` : ''}</div>
+      <div data-testid="draft-machine-type">{draft?.machine.system.machine_type ?? ''}</div>
       <div data-testid="transition-state">
         {transition.active ? `${transition.phase}:${transition.origin?.x}:${transition.origin?.y}:${transition.origin?.size}` : 'inactive'}
       </div>
@@ -220,6 +247,105 @@ describe('AppStore startMachine', () => {
     const savedContent = firstSaveCall?.[1];
     expect(typeof savedContent).toBe('string');
     expect(savedContent).toContain('accelerator = "tcg"');
+  });
+
+  it('migrates a saved accelerator override back into the structured machine field', async () => {
+    const legacyMachine = createMachineFromTemplate('win11');
+    legacyMachine.id = 'machine-1';
+    legacyMachine.title = 'Windows Dev Box';
+    legacyMachine.system.accelerator = 'tcg';
+    legacyMachine.advanced.qemu_args = '-accel whpx';
+    window.electronAPI.files.readSaka = vi.fn(async () => ({
+      path: machinePath,
+      configPath: `${machinePath}/machine.svm`,
+      content: serializeSakaMachine(legacyMachine),
+      legacySingleFile: false
+    }));
+    const normalizeCustomQemuArgs = vi.fn(async ({ machine }) => ({
+      ok: true,
+      machine: {
+        ...machine,
+        system: { ...machine.system, accelerator: 'whpx' as const },
+        advanced: { ...machine.advanced, qemu_args: '' }
+      },
+      args: []
+    }));
+    window.electronAPI.runtime.normalizeCustomQemuArgs = normalizeCustomQemuArgs;
+    const user = userEvent.setup();
+
+    render(
+      <AppStoreProvider>
+        <StoreHarness />
+      </AppStoreProvider>
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'open' }));
+
+    await waitFor(() => {
+      expect(normalizeCustomQemuArgs).toHaveBeenCalledWith(expect.objectContaining({
+        machine: expect.objectContaining({ system: expect.objectContaining({ accelerator: 'tcg' }) }),
+        customArgs: ['-accel whpx']
+      }));
+      expect(screen.getByTestId('draft-accelerator')).toHaveTextContent('whpx:true');
+    });
+  });
+
+  it('saves and reloads UI changes when Windows refers to the same bundle with a different path form', async () => {
+    const windowsBundlePath = 'D:\\Virtual Machines\\Linux.saka';
+    const initialMachine = createMachineFromTemplate('linux');
+    initialMachine.id = 'machine-1';
+    let persistedContent = serializeSakaMachine(initialMachine);
+    const saveSaka = vi.fn(async (_path: string, content: string) => {
+      persistedContent = content;
+      return {
+        path: windowsBundlePath,
+        configPath: `${windowsBundlePath}\\machine.svm`
+      };
+    });
+    const readSaka = vi.fn(async () => ({
+      path: windowsBundlePath,
+      configPath: `${windowsBundlePath}\\machine.svm`,
+      content: persistedContent,
+      legacySingleFile: false
+    }));
+    window.electronAPI.files.readSaka = readSaka;
+    window.electronAPI.files.saveSaka = saveSaka;
+    const startMachine = vi.fn(async () => ({ ok: true }));
+    window.electronAPI.runtime.startMachine = startMachine;
+    const user = userEvent.setup();
+
+    render(
+      <AppStoreProvider>
+        <StoreHarness />
+      </AppStoreProvider>
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'open' }));
+    await user.click(screen.getByRole('button', { name: 'set-windows-linux-values' }));
+    await user.click(screen.getByRole('button', { name: 'save' }));
+    await waitFor(() => expect(saveSaka).toHaveBeenCalledTimes(1));
+    expect(persistedContent).toContain('accelerator = "whpx"');
+    expect(persistedContent).toContain('machine_type = "pc-q35-9.1"');
+
+    await user.click(screen.getByRole('button', { name: 'open-no-recent-refresh' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('draft-accelerator')).toHaveTextContent('whpx:false');
+      expect(screen.getByTestId('draft-machine-type')).toHaveTextContent('pc-q35-9.1');
+    });
+
+    await user.click(screen.getByRole('button', { name: 'set-windows-linux-values' }));
+    await user.click(screen.getByRole('button', { name: 'start-windows-path-variant' }));
+    await waitFor(() => {
+      expect(saveSaka).toHaveBeenCalledTimes(2);
+      expect(startMachine).toHaveBeenCalledWith(windowsBundlePath);
+    });
+
+    await user.click(screen.getByRole('button', { name: 'force-stop' }));
+    await user.click(screen.getByRole('button', { name: 'open-no-recent-refresh' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('draft-accelerator')).toHaveTextContent('whpx:false');
+      expect(screen.getByTestId('draft-machine-type')).toHaveTextContent('pc-q35-9.1');
+    });
   });
 
   it('migrates the old permanent welcome dismissal to the current version', async () => {

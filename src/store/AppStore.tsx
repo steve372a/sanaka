@@ -15,8 +15,10 @@ import type { RuntimeMachineState, UpdateAvailableEvent, UpdateCheckResult, Upda
 import { builtInTemplates, createMachineFromTemplate, createMachineFromTemplateDocument, normalizeMachineCompatibility } from '../domain/templates';
 import { resources } from '../i18n/resources';
 import { makeRecentEntry } from '../lib/machine';
+import { isSameMachinePath } from '../lib/machinePath';
 import type { FullscreenTransitionOrigin, FullscreenTransitionState, FullscreenTransitionType } from '../lib/fullscreenTransition';
 import { parseSakaContent, sanitizeMachineName, serializeSakaMachine } from '../lib/saka';
+import { isWebMode } from '../lib/webMode';
 
 function normalizeSettingsForMainline(settings: AppSettings): AppSettings {
   return {
@@ -241,6 +243,35 @@ function formatGenericError(language: AppSettings['language'], error: unknown, f
     return error.trim();
   }
   return language === 'zh-CN' ? fallbackZh : fallbackEn;
+}
+
+async function normalizeSavedControlledArgs(machine: SakaMachine) {
+  const source = machine.advanced.qemu_args.trim();
+  const normalize = window.electronAPI.runtime.normalizeCustomQemuArgs;
+  if (!source || !normalize || isWebMode()) {
+    return { machine, migrated: false };
+  }
+
+  const customArgs = source.split('\n').map((line) => line.trim()).filter(Boolean);
+  const hasUnsafeLegacyLine = customArgs.some((line) =>
+    (line.match(/(^|\s)-[a-z][a-z0-9-]*/gi) || []).length > 1
+  );
+  if (hasUnsafeLegacyLine) {
+    return { machine, migrated: false };
+  }
+
+  try {
+    const result = await normalize({ machine, customArgs });
+    if (!result.ok) {
+      return { machine, migrated: false };
+    }
+    return {
+      machine: result.machine,
+      migrated: JSON.stringify(result.machine) !== JSON.stringify(machine)
+    };
+  } catch {
+    return { machine, migrated: false };
+  }
 }
 
 async function readTemplateByKey(settings: AppSettings, templateKey: string) {
@@ -671,14 +702,16 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         ]);
         return { kind: 'template' as const, machineId: machine.id, path: opened.path };
       }
-      const normalizedMachine = normalizeMachineCompatibility(parsed);
+      const compatibilityMachine = normalizeMachineCompatibility(parsed);
+      const controlledArgsResult = await normalizeSavedControlledArgs(compatibilityMachine);
+      const normalizedMachine = controlledArgsResult.machine;
       setDraft({
         machine: normalizedMachine,
         filePath: opened.path,
         configPath: opened.configPath,
         previewPath: opened.previewPath,
         legacySingleFile: opened.legacySingleFile,
-        dirty: false
+        dirty: controlledArgsResult.migrated
       });
       setActivity((current) => [
         makeActivity(
@@ -711,7 +744,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
             ),
             ...current
           ]);
-          if (draft?.filePath === filePath) {
+          if (isSameMachinePath(draft?.filePath, filePath)) {
             setDraft(null);
           }
           return null;
@@ -848,7 +881,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         const next = (await window.electronAPI.recents.remove(machinePath)) as RecentEntry[];
         const parsed = recentEntrySchema.array().parse(next);
         setRecents(parsed);
-        setDraft((current) => (current?.filePath === machinePath ? null : current));
+        setDraft((current) => (isSameMachinePath(current?.filePath, machinePath) ? null : current));
         setActivity((current) => [
           makeActivity(
             settings.language === 'zh-CN' ? '已删除虚拟机' : 'Machine Deleted',
@@ -884,7 +917,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       setStartError(null);
       let resolvedMachinePath = machinePath;
 
-      if (draft?.filePath === machinePath && draft.dirty) {
+      if (draft && isSameMachinePath(draft.filePath, machinePath) && draft.dirty) {
         const savedPath = await saveDraft('save');
         if (!savedPath) {
           setActivity((current) => [
@@ -1020,7 +1053,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         await window.electronAPI.files.saveSaka(finalPath, content);
 
         const updatedRecents = recents.map((item) => {
-          if (item.path === machinePath) {
+          if (isSameMachinePath(item.path, machinePath)) {
             return {
               ...item,
               title: sanitized,
@@ -1043,7 +1076,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         });
 
         setDraft((current) => {
-          if (current && current.filePath === machinePath) {
+          if (current && isSameMachinePath(current.filePath, machinePath)) {
             return {
               ...current,
               filePath: finalPath,

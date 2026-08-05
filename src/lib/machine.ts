@@ -1,4 +1,5 @@
 import type { DisplayFrontend, MachineDraft, RecentEntry, SakaMachine, SakaTemplate, WorkspaceMachineItem, WorkspaceSelection } from '../domain/schemas';
+import { isSameMachinePath } from './machinePath';
 
 const KNOWN_ACCELERATORS = ['tcg', 'mttcg', 'kvm', 'hax', 'whpx', 'hvf'] as const;
 type KnownAccelerator = (typeof KNOWN_ACCELERATORS)[number];
@@ -181,7 +182,7 @@ export function resolveWorkspaceSelection(items: WorkspaceMachineItem[], pathnam
   }
 
   const primary =
-    (routePath ? items.find((item) => item.path === routePath) : null) ??
+    (routePath ? items.find((item) => isSameMachinePath(item.path, routePath)) : null) ??
     (routeMachineId ? items.find((item) => item.id === routeMachineId) : null) ??
     (draft ? items.find((item) => item.id === draft.machine.id) : null) ??
     items[0];

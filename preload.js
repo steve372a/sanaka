@@ -85,9 +85,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updater: {
     getCurrentInfo: () => ipcRenderer.invoke('updater:get-current-info'),
     checkForUpdates: (options) => ipcRenderer.invoke('updater:check-for-updates', options),
+    downloadLatest: (options) => ipcRenderer.invoke('updater:download-latest', options),
     skipVersion: (version) => ipcRenderer.invoke('updater:skip-version', version),
     openUpdatePage: (url) => ipcRenderer.invoke('updater:open-update-page', url),
-    onUpdateAvailable: (handler) => on('app:update-available', handler)
+    onUpdateAvailable: (handler) => on('app:update-available', handler),
+    onDownloadProgress: (handler) => on('app:update-download-progress', handler)
   },
   viewer: {
     createExternalVncSession: (request) => ipcRenderer.invoke('viewer:create-external-vnc-session', request),

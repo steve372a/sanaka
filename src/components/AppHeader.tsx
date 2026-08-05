@@ -5,6 +5,7 @@ import { machineRoute } from '../lib/routes';
 import { makeWorkspaceMachineItems, resolveWorkspaceSelection } from '../lib/machine';
 import { parseSakaContent } from '../lib/saka';
 import { useAppStore } from '../store/AppStore';
+import { isSameMachinePath } from '../lib/machinePath';
 import { usePresence } from '../hooks/usePresence';
 import { useListReorderAnimation } from '../hooks/useListReorderAnimation';
 import { useT } from '../hooks/useT';
@@ -281,7 +282,7 @@ export function AppHeader({ onLogoClick }: AppHeaderProps) {
       return;
     }
 
-    if (draft?.filePath === item.path) {
+    if (draft && isSameMachinePath(draft.filePath, item.path)) {
       setExportMachine({
         id: item.id,
         title: draft.machine.title,

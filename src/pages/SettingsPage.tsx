@@ -10,6 +10,7 @@ import { TemplateIcon } from '../components/TemplateIcon';
 import { useAppStore } from '../store/AppStore';
 import { useT } from '../hooks/useT';
 import { isWebMode as isSanakaWebMode, showWebModificationNotice } from '../lib/webMode';
+import type { UpdateDownloadProgress } from '../types/electron';
 
 // Settings Icons
 const GlobeIcon = () => (
@@ -218,6 +219,9 @@ export function SettingsPage() {
   const initialTab = params.get('tab');
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>(tabs.includes(initialTab as (typeof tabs)[number]) ? (initialTab as (typeof tabs)[number]) : 'general');
   const [checking, setChecking] = useState(false);
+  const [downloadingUpdate, setDownloadingUpdate] = useState(false);
+  const [forceUpdateDownload, setForceUpdateDownload] = useState(false);
+  const [updateDownloadProgress, setUpdateDownloadProgress] = useState<UpdateDownloadProgress | null>(null);
   const [checkMessage, setCheckMessage] = useState<string | null>(null);
   const [templateImportMessage, setTemplateImportMessage] = useState<string | null>(null);
   const [accentColorDialogOpen, setAccentColorDialogOpen] = useState(false);
@@ -230,6 +234,13 @@ export function SettingsPage() {
       setActiveTab(resolvedTab);
     }
   }, [activeTab, params]);
+
+  useEffect(() => {
+    if (isWebMode || !window.electronAPI.updater.onDownloadProgress) return () => undefined;
+    return window.electronAPI.updater.onDownloadProgress((progress) => {
+      setUpdateDownloadProgress(progress);
+    });
+  }, [isWebMode]);
 
   const orderedTemplates = useMemo(() => [...templates].sort((a, b) => a.order - b.order), [templates]);
   const defaultMachineDirectory = settings.defaultSaveDirectory || appMeta?.defaultMachineDirectory || '';
@@ -270,6 +281,30 @@ export function SettingsPage() {
       if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
       setCheckMessage(nextMessage);
       setChecking(false);
+    }
+  };
+
+  const handleDownloadUpdate = async () => {
+    const downloadLatest = window.electronAPI.updater.downloadLatest;
+    if (!downloadLatest || isWebMode) return;
+    setDownloadingUpdate(true);
+    setUpdateDownloadProgress(null);
+    setCheckMessage(null);
+    try {
+      const result = await downloadLatest({ force: forceUpdateDownload });
+      if (result.ok) {
+        setCheckMessage(t('settings.updateDownloaded', { path: result.path || result.fileName || '' }));
+      } else if (result.code === 'NO_UPDATE') {
+        setCheckMessage(t('settings.alreadyLatest'));
+      } else if (result.code === 'ASSET_UNAVAILABLE') {
+        setCheckMessage(t('settings.updatePackageUnavailable'));
+      } else {
+        setCheckMessage(t('settings.updateDownloadFailed'));
+      }
+    } catch {
+      setCheckMessage(t('settings.updateDownloadFailed'));
+    } finally {
+      setDownloadingUpdate(false);
     }
   };
 
@@ -594,11 +629,39 @@ export function SettingsPage() {
                     </dl>
                     <div className="update-settings__progress-slot" aria-label={checking ? t('settings.checkingUpdates') : undefined}>
                       {checking ? <div className="update-settings__progress" aria-hidden="true">{Array.from({ length: 5 }, (_, index) => <span className="update-settings__progress-dot" key={index} />)}</div> : null}
+                      {!checking && downloadingUpdate ? (
+                        <div className="update-download__progress" aria-label={t('settings.downloadingUpdate')} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={updateDownloadProgress?.percent || 0}>
+                          <span style={{ width: `${updateDownloadProgress?.percent || 0}%` }} />
+                        </div>
+                      ) : null}
                     </div>
+                    {!isWebMode ? (
+                      <label className={forceUpdateDownload ? 'update-force-option update-force-option--checked' : 'update-force-option'}>
+                        <input
+                          className="update-force-option__input"
+                          type="checkbox"
+                          checked={forceUpdateDownload}
+                          disabled={downloadingUpdate}
+                          onChange={(event) => setForceUpdateDownload(event.target.checked)}
+                        />
+                        <span className="update-force-option__control" aria-hidden="true">
+                          {forceUpdateDownload ? <svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6" /></svg> : null}
+                        </span>
+                        <span className="update-force-option__copy">
+                          <strong>{t('settings.forceUpdateDownload')}</strong>
+                          <small>{t('settings.forceUpdateDownloadDescription')}</small>
+                        </span>
+                      </label>
+                    ) : null}
                     <div className="update-settings__actions">
-                      <button className="button button--primary" type="button" onClick={() => void handleCheckUpdates()} disabled={checking}>
+                      <button className={isWebMode ? 'button button--primary' : 'button button--ghost'} type="button" onClick={() => void handleCheckUpdates()} disabled={checking || downloadingUpdate}>
                         {checking ? t('settings.checkingUpdates') : t('settings.checkUpdates')}
                       </button>
+                      {!isWebMode ? (
+                        <button className="button button--primary" type="button" onClick={() => void handleDownloadUpdate()} disabled={checking || downloadingUpdate}>
+                          {downloadingUpdate ? t('settings.downloadingUpdate') : forceUpdateDownload ? t('settings.redownloadUpdate') : t('settings.downloadNewVersion')}
+                        </button>
+                      ) : null}
                     </div>
                     {checkMessage ? <div className="update-settings__message" role="status">{checkMessage}</div> : null}
                   </div>

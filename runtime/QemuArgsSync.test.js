@@ -51,8 +51,15 @@ describe('QemuArgsSync', () => {
   });
 
   it('promotes controlled-looking custom args back into machine fields', () => {
-    const result = normalizeCustomArgs(baseMachine, ['-m 4096', '-global ICH9-LPC.disable_s3=1']);
+    const result = normalizeCustomArgs(baseMachine, [
+      '-m 4096',
+      '-machine pc-i440fx-9.2',
+      '-accel whpx',
+      '-global ICH9-LPC.disable_s3=1'
+    ]);
     expect(result.machine.system.memory_mib).toBe(4096);
+    expect(result.machine.system.machine_type).toBe('pc-i440fx-9.2');
+    expect(result.machine.system.accelerator).toBe('whpx');
     expect(result.machine.advanced.qemu_args).toBe('-global ICH9-LPC.disable_s3=1');
     expect(result.args.map((item) => item.raw)).toContain('-m 4096');
     expect(result.args.map((item) => item.raw)).toContain('-global ICH9-LPC.disable_s3=1');

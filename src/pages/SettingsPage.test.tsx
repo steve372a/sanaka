@@ -110,9 +110,11 @@ function mockElectronApi(environment: RuntimeEnvironmentFixture = runtimeEnviron
     updater: {
       getCurrentInfo: vi.fn(async () => ({ currentVersion: '1.0.0', currentChannel: 'release' as const, skippedVersion: '' })),
       checkForUpdates: vi.fn(async () => ({ currentVersion: '1.0.0', currentChannel: 'release' as const, hasUpdate: false, skippedVersion: '' })),
+      downloadLatest: vi.fn(async () => ({ ok: true, version: '1.0.0', fileName: 'sanaka.dmg', path: '/tmp/sanaka.dmg' })),
       skipVersion: vi.fn(async () => ({ ok: true as const, skippedVersion: '1.0.0' })),
       openUpdatePage: vi.fn(async () => ({ ok: true as const })),
-      onUpdateAvailable: vi.fn(() => () => undefined)
+      onUpdateAvailable: vi.fn(() => () => undefined),
+      onDownloadProgress: vi.fn(() => () => undefined)
     },
     app: {
       getMetadata: vi.fn(async () => ({ name: 'Sanaka', version: '1.0.0', platform: 'darwin', arch: 'x64', userDataPath: '/tmp', documentsPath: '/tmp/Documents', defaultMachineDirectory: '/tmp/Documents/Sanaka' })),
@@ -248,6 +250,50 @@ describe('SettingsPage', () => {
 
     expect(screen.getByRole('button', { name: '检查中...' })).toBeDisabled();
     expect(document.querySelectorAll('.update-settings__progress-dot')).toHaveLength(5);
+  });
+
+  it('downloads the desktop package and forwards the force option', async () => {
+    const originalLocation = window.location;
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...originalLocation, protocol: 'file:' }
+    });
+    const user = userEvent.setup();
+    try {
+      renderSettings('/settings?tab=update');
+
+      await user.click(await screen.findByRole('checkbox', { name: /强制重新下载/ }));
+      await user.click(screen.getByRole('button', { name: '重新下载新版本' }));
+
+      expect(window.electronAPI.updater.downloadLatest).toHaveBeenCalledWith({ force: true });
+      expect(await screen.findByText('安装包已下载到：/tmp/sanaka.dmg')).toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: originalLocation
+      });
+    }
+  });
+
+  it('hides package download controls in web mode', async () => {
+    const originalLocation = window.location;
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...originalLocation, protocol: 'http:' }
+    });
+
+    try {
+      renderSettings('/settings?tab=update');
+
+      expect(await screen.findByRole('button', { name: '检查更新' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '更新新版本' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('checkbox', { name: /强制重新下载/ })).not.toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: originalLocation
+      });
+    }
   });
 
   it('shows the default web mode port in desktop settings', async () => {

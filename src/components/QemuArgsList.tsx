@@ -60,6 +60,7 @@ export function QemuArgsList({ machine, onChange, t }: QemuArgsListProps) {
   const [error, setError] = useState<string | null>(null);
   const addTextareaRef = useRef<HTMLTextAreaElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
+  const loadSequenceRef = useRef(0);
 
   const mapFullCommandArgs = useCallback((items: FullQemuCommandArgItem[]): ArgLine[] => {
     const tokenItems = (items || []).map((item, index) => ({
@@ -148,14 +149,17 @@ export function QemuArgsList({ machine, onChange, t }: QemuArgsListProps) {
 
   const loadArgs = useCallback(
     async (nextMachine: SakaMachine) => {
+      const requestSequence = ++loadSequenceRef.current;
       const runtime = window.electronAPI.runtime;
       if (runtime.getFullQemuCommand) {
         const result = await runtime.getFullQemuCommand(nextMachine);
+        if (requestSequence !== loadSequenceRef.current) return;
         setArgs(mapFullCommandArgs(result.args || []));
         return;
       }
       if (runtime.buildQemuArgList) {
         const result = await runtime.buildQemuArgList(nextMachine);
+        if (requestSequence !== loadSequenceRef.current) return;
         setArgs(mapLegacyArgs(result.args || []));
       }
     },
@@ -163,19 +167,9 @@ export function QemuArgsList({ machine, onChange, t }: QemuArgsListProps) {
   );
 
   useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        await loadArgs(machine);
-      } finally {
-        if (cancelled) {
-          return;
-        }
-      }
-    };
-    void load();
+    void loadArgs(machine);
     return () => {
-      cancelled = true;
+      loadSequenceRef.current += 1;
     };
   }, [loadArgs, machine]);
 
@@ -190,23 +184,23 @@ export function QemuArgsList({ machine, onChange, t }: QemuArgsListProps) {
           qemu_args: customText
         }
       };
-      if (runtime.getFullQemuCommand) {
-        onChange(nextMachine);
-        await loadArgs(nextMachine);
-        return;
-      }
       if (runtime.normalizeCustomQemuArgs) {
         const result = await runtime.normalizeCustomQemuArgs({
           machine,
           customArgs
         });
         onChange(result.machine);
-        setArgs(mapLegacyArgs(result.args || []));
+        await loadArgs(result.machine);
+        return;
+      }
+      if (runtime.getFullQemuCommand) {
+        onChange(nextMachine);
+        await loadArgs(nextMachine);
         return;
       }
       onChange(nextMachine);
     },
-    [loadArgs, machine, mapLegacyArgs, onChange]
+    [loadArgs, machine, onChange]
   );
 
   const currentCustomArgs = useCallback((): string[] => {

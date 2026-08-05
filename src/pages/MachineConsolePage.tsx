@@ -6,6 +6,7 @@ import { NoVncViewport, type NoVncInputMode, type NoVncScaleMode, type NoVncView
 import { WebFilePickerDialog } from '../components/WebFileBrowser';
 import { usePresence } from '../hooks/usePresence';
 import { makeAudioHint, makeDisplayHint } from '../lib/machine';
+import { isSameMachinePath } from '../lib/machinePath';
 import { formatRuntimeBackend } from '../lib/console-session';
 
 // 移动端检测 hook
@@ -315,7 +316,7 @@ export function MachineConsolePage() {
   const machineId = rawMachineId ? decodeURIComponent(rawMachineId) : '';
 
   useEffect(() => {
-    if (pathParam && draft?.filePath !== pathParam) {
+    if (pathParam && !isSameMachinePath(draft?.filePath, pathParam)) {
       void openSakaByPath(pathParam).then((result) => {
         if (!result) {
           navigate('/', { replace: true });
@@ -324,7 +325,7 @@ export function MachineConsolePage() {
     }
   }, [draft?.filePath, navigate, openSakaByPath, pathParam]);
 
-  const draftMatchesRoute = draft?.machine.id === machineId || (pathParam != null && draft?.filePath === pathParam);
+  const draftMatchesRoute = draft?.machine.id === machineId || isSameMachinePath(draft?.filePath, pathParam);
   const machine = draftMatchesRoute ? draft?.machine : undefined;
   const machinePath = pathParam ?? (draftMatchesRoute ? draft?.filePath : undefined);
 
@@ -333,12 +334,12 @@ export function MachineConsolePage() {
       getRuntimeStateForMachine(machineId) ??
       runtimeMachines.find((entry) => entry.machineId === machineId) ??
       (machinePath
-        ? runtimeMachines.find((entry) => entry.bundlePath === machinePath || entry.configPath === machinePath)
+        ? runtimeMachines.find((entry) => isSameMachinePath(entry.bundlePath, machinePath) || isSameMachinePath(entry.configPath, machinePath))
         : undefined),
     [getRuntimeStateForMachine, machineId, machinePath, runtimeMachines]
   );
   const recentEntry = useMemo(
-    () => recents.find((entry) => (machinePath ? entry.path === machinePath : false) || entry.id === machineId),
+    () => recents.find((entry) => isSameMachinePath(entry.path, machinePath) || entry.id === machineId),
     [machineId, machinePath, recents]
   );
   const machineTitle = machine?.title ?? recentEntry?.title ?? machineId;

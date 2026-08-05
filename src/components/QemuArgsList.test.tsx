@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { SakaMachine } from '../domain/schemas';
@@ -81,6 +81,15 @@ function buildFullCommand(machine: SakaMachine) {
       { id: 'generated:meta:value', raw: 'New VM 1', isCustom: false, editable: false },
       { id: 'generated:display:flag', raw: '-display', isCustom: false, editable: false },
       { id: 'generated:display:value', raw: 'none', isCustom: false, editable: false },
+      { id: 'generated:accel:flag', raw: '-accel', isCustom: false, editable: false },
+      {
+        id: 'generated:accel:value',
+        raw: machine.system.accelerator,
+        isCustom: false,
+        editable: true,
+        bindingKey: 'system.accelerator' as const,
+        editPrefix: '-accel'
+      },
       { id: 'generated:sound:flag', raw: '-device', isCustom: false, editable: false },
       {
         id: 'generated:sound:value',
@@ -250,5 +259,79 @@ describe('QemuArgsList', () => {
 
     window.removeEventListener('sanaka:web-restriction', restriction);
     window.sanakaWebAPI = undefined;
+  });
+
+  it('promotes an added accelerator argument into the UI-backed machine field', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const normalizeCustomQemuArgs = vi.fn(async ({ machine, customArgs }) => ({
+      ok: true,
+      machine: {
+        ...machine,
+        system: { ...machine.system, accelerator: 'whpx' as const },
+        advanced: { ...machine.advanced, qemu_args: '-device usb-kbd' }
+      },
+      args: []
+    }));
+    window.electronAPI = {
+      runtime: {
+        getFullQemuCommand: vi.fn(async (machine: SakaMachine) => buildFullCommand(machine)),
+        normalizeCustomQemuArgs
+      }
+    } as unknown as Window['electronAPI'];
+
+    render(<QemuArgsList machine={createMachine()} onChange={onChange} t={(key) => translations[key] || key} />);
+
+    await user.click(screen.getByRole('button', { name: 'Add custom argument' }));
+    const input = await screen.findByRole('textbox', { name: 'Add custom argument' });
+    await user.type(input, '-accel whpx');
+    await user.keyboard('{Control>}{Enter}{/Control}');
+
+    await waitFor(() => {
+      expect(normalizeCustomQemuArgs).toHaveBeenCalledWith({
+        machine: expect.objectContaining({ system: expect.objectContaining({ accelerator: 'tcg' }) }),
+        customArgs: ['-device usb-kbd', '-accel whpx']
+      });
+      expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+        system: expect.objectContaining({ accelerator: 'whpx' }),
+        advanced: expect.objectContaining({ qemu_args: '-device usb-kbd' })
+      }));
+    });
+    expect(await screen.findByText('-accel whpx')).toBeInTheDocument();
+  });
+
+  it('ignores an older command preview that completes after the current machine preview', async () => {
+    const tcgMachine = createMachine();
+    const whpxMachine = {
+      ...tcgMachine,
+      system: { ...tcgMachine.system, accelerator: 'whpx' as const }
+    };
+    let resolveOldPreview!: (value: ReturnType<typeof buildFullCommand>) => void;
+    const oldPreview = new Promise<ReturnType<typeof buildFullCommand>>((resolve) => {
+      resolveOldPreview = resolve;
+    });
+    const getFullQemuCommand = vi.fn()
+      .mockImplementationOnce(async () => oldPreview)
+      .mockImplementation(async (machine: SakaMachine) => buildFullCommand(machine));
+    window.electronAPI = {
+      runtime: { getFullQemuCommand }
+    } as unknown as Window['electronAPI'];
+
+    const { rerender } = render(
+      <QemuArgsList machine={tcgMachine} onChange={vi.fn()} t={(key) => translations[key] || key} />
+    );
+    await waitFor(() => expect(getFullQemuCommand).toHaveBeenCalledTimes(1));
+
+    rerender(<QemuArgsList machine={whpxMachine} onChange={vi.fn()} t={(key) => translations[key] || key} />);
+    await userEvent.setup().click(screen.getByTestId('qemu-args-toggle'));
+    expect(await screen.findByText('-accel whpx')).toBeInTheDocument();
+
+    await act(async () => {
+      resolveOldPreview(buildFullCommand(tcgMachine));
+      await oldPreview;
+    });
+
+    expect(screen.getByText('-accel whpx')).toBeInTheDocument();
+    expect(screen.queryByText('-accel tcg')).not.toBeInTheDocument();
   });
 });

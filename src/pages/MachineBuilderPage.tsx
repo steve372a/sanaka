@@ -8,6 +8,7 @@ import { Checkbox } from '../components/Checkbox';
 import { QemuArgsList } from '../components/QemuArgsList';
 import { WebFilePickerDialog } from '../components/WebFileBrowser';
 import { TemplateIcon } from '../components/TemplateIcon';
+import { Toast } from '../components/Toast';
 import { useT } from '../hooks/useT';
 import { collectMachineWarnings, getSupportedAccelerators, isGuestArchCompatibleWithHost, makeAudioHint, makeDisplayHint } from '../lib/machine';
 import { machineRoute } from '../lib/routes';
@@ -24,6 +25,12 @@ const WindowsIcon = () => (
 const BackIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M15 18l-6-6 6-6" />
+  </svg>
+);
+
+const CheckIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="m5 12 4.2 4.2L19 6.5" />
   </svg>
 );
 
@@ -444,7 +451,7 @@ function supportsUefiForMachine(machine: SakaMachine) {
     (machine.system.arch === 'aarch64' && machine.system.machine_type === 'virt');
 }
 
-function defaultDiskInterfaceForMachine(machine: SakaMachine): DiskInterface {
+export function defaultDiskInterfaceForMachine(machine: SakaMachine): DiskInterface {
   if (machine.template.key === 'custom') {
     return 'sata';
   }
@@ -455,7 +462,7 @@ function defaultDiskInterfaceForMachine(machine: SakaMachine): DiskInterface {
     return 'ide';
   }
   if (machine.template.key === 'win11') {
-    return 'sata';
+    return 'ide';
   }
   return 'virtio';
 }
@@ -467,6 +474,9 @@ export function MachineBuilderPage() {
   const t = useT();
   const [isDiskManagerOpen, setIsDiskManagerOpen] = useState(false);
   const [webFilePicker, setWebFilePicker] = useState<'iso' | 'firmware-code' | 'firmware-vars' | null>(null);
+  const [architectureNoticeVisible, setArchitectureNoticeVisible] = useState(false);
+  const [showFloatingSave, setShowFloatingSave] = useState(false);
+  const pageRef = useRef<HTMLDivElement>(null);
   const requestedTemplate = params.get('template') || 'win11';
   const freshToken = params.get('fresh');
   const shouldCreateFresh = freshToken !== null;
@@ -533,6 +543,18 @@ export function MachineBuilderPage() {
     }
   }, [createDraftFromTemplateKey, draft, freshToken, navigate, params, requestedTemplate, shouldCreateFresh]);
 
+  useEffect(() => {
+    const scrollContainer = pageRef.current?.closest('.app-shell__content');
+    if (!(scrollContainer instanceof HTMLElement)) {
+      return;
+    }
+
+    const updateFloatingSave = () => setShowFloatingSave(scrollContainer.scrollTop > 0);
+    updateFloatingSave();
+    scrollContainer.addEventListener('scroll', updateFloatingSave, { passive: true });
+    return () => scrollContainer.removeEventListener('scroll', updateFloatingSave);
+  }, [draft?.machine.id]);
+
   const warnings = useMemo(() => (draft ? collectMachineWarnings(draft.machine) : []), [draft]);
   const machine = draft?.machine ?? null;
   const isCustomTemplate = machine?.template.key === 'custom';
@@ -580,7 +602,10 @@ export function MachineBuilderPage() {
     value: SakaMachine['system']['accelerator'];
     label: string;
   }>;
-  const visibleArchOptions = customArchOptions;
+  const visibleArchOptions = customArchOptions.map((option) => ({
+    ...option,
+    label: t(`builder.architectures.${option.value}`)
+  }));
   const baseGpuOptions = machine ? gpuOptionsForMachine(machine) : x86GpuOptions;
   const baseNetworkCardOptions = machine ? networkCardOptionsForMachine(machine) : networkCardOptions;
   const visibleDiskInterfaceOptions = machine ? diskInterfaceOptionsForMachine(machine) : diskInterfaceOptions;
@@ -590,7 +615,6 @@ export function MachineBuilderPage() {
   const selectedGpu = machine?.display.gpu ?? null;
   const selectedSoundCard = machine?.system.sound_card ?? null;
   const selectedNetworkCard = machine?.network.card ?? null;
-  const previousLinuxArchRef = useRef<SakaMachine['system']['arch'] | null>(null);
   const customOptionLabel = t('builder.firmware.custom');
   const visibleMachineTypeOptions = withCustomOption(machineTypeOptions, selectedMachineType, customOptionLabel);
   const visibleGpuOptions = withCustomOption(baseGpuOptions, selectedGpu, customOptionLabel);
@@ -619,42 +643,6 @@ export function MachineBuilderPage() {
       }
     }));
   }, [acceleratorOptions, machine, selectedAccelerator, updateDraft]);
-
-  useEffect(() => {
-    if (!machine) {
-      return;
-    }
-
-    if (machine.template.key === 'linux') {
-      if (previousLinuxArchRef.current !== machine.system.arch) {
-        previousLinuxArchRef.current = machine.system.arch;
-        const defaults = linuxArchDefaults(machine.system.arch);
-        updateDraft((current) => ({
-          ...current,
-          system: {
-            ...current.system,
-            machine_type: defaults.machineType,
-            accelerator: defaults.accelerator,
-            sound_card: defaults.soundCard
-          },
-          network: {
-            ...current.network,
-            enabled: defaults.networkEnabled,
-            card: defaults.networkCard
-          },
-          disks: current.disks.map((disk, index) =>
-            index === 0 && disk.interface !== defaults.diskInterface
-              ? { ...disk, interface: defaults.diskInterface }
-              : disk
-          )
-        }));
-      }
-      return;
-    }
-
-    previousLinuxArchRef.current = null;
-
-  }, [machine, selectedMachineType, updateDraft]);
 
   useEffect(() => {
     if (!machine || !selectedGpu) {
@@ -713,6 +701,7 @@ export function MachineBuilderPage() {
   const isEditingExisting = Boolean(draft.filePath);
   const defaultDiskInterface = defaultDiskInterfaceForMachine(machine);
   const supportsUefi = supportsUefiForMachine(machine);
+  const primaryActionLabel = isEditingExisting ? t('builder.actions.save') : t('app.create');
 
   const saveAndOpenDetails = async () => {
     const titleToSave = uniqueTitle || machine.title;
@@ -733,7 +722,7 @@ export function MachineBuilderPage() {
   };
 
   return (
-    <div className="page page--builder">
+    <div className="page page--builder" ref={pageRef}>
       <header className="builder-toolbar">
         <button className="icon-button builder-toolbar__back" type="button" onClick={() => navigate(-1)} aria-label={t('app.back')} title={t('app.back')}>
           <BackIcon />
@@ -750,7 +739,7 @@ export function MachineBuilderPage() {
             {t('builder.actions.saveAs')}
           </button>
           <button className="button button--primary" type="button" onClick={() => void saveAndOpenDetails()} disabled={isSaveDisabled}>
-            {isEditingExisting ? t('builder.actions.save') : t('app.create')}
+            {primaryActionLabel}
           </button>
         </div>
       </header>
@@ -969,7 +958,44 @@ export function MachineBuilderPage() {
                   value={machine.system.arch}
                   options={visibleArchOptions}
                   rawValues={settings.experimental.rawQemuValues}
-                  onChange={(nextValue: SakaMachine['system']['arch']) => updateDraft((current) => ({ ...current, system: { ...current.system, arch: nextValue } }))}
+                  onChange={(nextValue: SakaMachine['system']['arch']) => {
+                    setArchitectureNoticeVisible(['arm', 'riscv64', 'ppc', 'ppc64'].includes(nextValue));
+                    updateDraft((current) => {
+                      if (current.template.key !== 'linux') {
+                        return {
+                          ...current,
+                          system: {
+                            ...current.system,
+                            arch: nextValue,
+                            ...(nextValue === 'aarch64' ? { machine_type: 'virt', uefi: true } : {})
+                          }
+                        };
+                      }
+
+                      const defaults = linuxArchDefaults(nextValue);
+                      return {
+                        ...current,
+                        system: {
+                          ...current.system,
+                          arch: nextValue,
+                          machine_type: defaults.machineType,
+                          accelerator: defaults.accelerator,
+                          sound_card: defaults.soundCard,
+                          ...(nextValue === 'aarch64' ? { uefi: true } : {})
+                        },
+                        network: {
+                          ...current.network,
+                          enabled: defaults.networkEnabled,
+                          card: defaults.networkCard
+                        },
+                        disks: current.disks.map((disk, index) =>
+                          index === 0 && disk.interface !== defaults.diskInterface
+                            ? { ...disk, interface: defaults.diskInterface }
+                            : disk
+                        )
+                      };
+                    });
+                  }}
                 />
               </div>
               <div className="form-row-align">
@@ -1526,6 +1552,24 @@ export function MachineBuilderPage() {
           }}
         />
       )}
+      <Toast
+        message={t('builder.descriptions.additionalArchConfiguration')}
+        visible={architectureNoticeVisible}
+        onClose={() => setArchitectureNoticeVisible(false)}
+        duration={4000}
+      />
+      <button
+        className={showFloatingSave ? 'builder-floating-save builder-floating-save--visible' : 'builder-floating-save'}
+        type="button"
+        onClick={() => void saveAndOpenDetails()}
+        disabled={isSaveDisabled}
+        aria-label={primaryActionLabel}
+        aria-hidden={!showFloatingSave}
+        tabIndex={showFloatingSave ? 0 : -1}
+        title={primaryActionLabel}
+      >
+        <CheckIcon />
+      </button>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { StatusChip } from '../components/Field';
 import { useT } from '../hooks/useT';
 import { checkMachinePaths, makeWorkspaceMachineItems, resolveWorkspaceSelection } from '../lib/machine';
+import { isSameMachinePath } from '../lib/machinePath';
 import { machineRoute } from '../lib/routes';
 import { useAppStore } from '../store/AppStore';
 import type { WorkspaceMachineItem } from '../domain/schemas';
@@ -122,7 +123,7 @@ export function HomePage() {
 
   useEffect(() => {
     const targetPath = primaryMachine?.path;
-    if (!pathsChecked || !targetPath || primaryMachine.missing || draft?.filePath === targetPath || failedPath === targetPath || openingPath === targetPath) {
+    if (!pathsChecked || !targetPath || primaryMachine.missing || isSameMachinePath(draft?.filePath, targetPath) || failedPath === targetPath || openingPath === targetPath) {
       return undefined;
     }
 
@@ -201,7 +202,7 @@ export function HomePage() {
   );
 
   const renderDesktopLayout = () => {
-    if (primaryMachine && draft?.filePath === primaryMachine.path) {
+    if (primaryMachine && isSameMachinePath(draft?.filePath, primaryMachine.path)) {
       return <MachineDetailsPage />;
     }
 

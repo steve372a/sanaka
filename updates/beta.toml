@@ -15,3 +15,35 @@ notes = """
 7、修复编辑虚拟机时切换模板、最近虚拟机排序、新建草稿提前出现等问题。
 8、修复 Windows 安装包未完整携带 QEMU 资源，以及 macOS 成品签名损坏导致“应用已损坏”的问题。
 """
+
+[[assets]]
+platform = "darwin"
+arch = "arm64"
+file_name = "sanaka-0.0.4beta-macos-aarch64.dmg"
+url = "https://github.com/steve372a/sanaka/releases/download/v0.0.4%28beta%29/sanaka-0.0.4beta-macos-aarch64.dmg"
+sha256 = "689f5fa2d7456215770c5ac0a82e037b120313a4987331c9e0ddda9a2bda8a20"
+size = 197024174
+
+[[assets]]
+platform = "win32"
+arch = "x64"
+file_name = "sanaka-0.0.4beta-win-x64.exe"
+url = "https://github.com/steve372a/sanaka/releases/download/v0.0.4%28beta%29/sanaka-0.0.4beta-win-x64.exe"
+sha256 = "e6c1c78149815c6905dd94e339d9a22809b1875b200e18cf3155fb0ec7417bf6"
+size = 212467668
+
+[[assets]]
+platform = "linux"
+arch = "x64"
+file_name = "sanaka-0.0.4beta-linux-amd64.deb"
+url = "https://github.com/steve372a/sanaka/releases/download/v0.0.4%28beta%29/sanaka-0.0.4beta-linux-amd64.deb"
+sha256 = "b9d012981c748ff146e521e6f1885ae7c92d28dc3bdb067797a9c374148a37d4"
+size = 134312180
+
+[[assets]]
+platform = "linux"
+arch = "arm64"
+file_name = "sanaka-0.0.4beta-linux-aarch64.deb"
+url = "https://github.com/steve372a/sanaka/releases/download/v0.0.4%28beta%29/sanaka-0.0.4beta-linux-aarch64.deb"
+sha256 = "9f5050a1943921efa1862412a52f94d4cbdbbbff75c430d33d826111e76bf19a"
+size = 128996868
