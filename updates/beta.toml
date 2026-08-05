@@ -1,7 +1,7 @@
 version = "0.0.4-beta"
 channel = "beta"
 mandatory = false
-pub_date = "2026-07-30"
+pub_date = "2026-08-06"
 url = "https://github.com/steve372a/sanaka/releases"
 title = "Sanaka 0.0.4 Beta"
 
@@ -14,6 +14,7 @@ notes = """
 6、改进检查更新：清单迁回 Sanaka 仓库，GitHub 访问失败时自动切换代理，并增加五点加载动画。
 7、修复编辑虚拟机时切换模板、最近虚拟机排序、新建草稿提前出现等问题。
 8、修复 Windows 安装包未完整携带 QEMU 资源，以及 macOS 成品签名损坏导致“应用已损坏”的问题。
+9、修复 Windows 宿主机上 Linux 模板重新进入后恢复 TCG 和默认机器类型的问题。
 """
 
 [[assets]]
@@ -21,29 +22,29 @@ platform = "darwin"
 arch = "arm64"
 file_name = "sanaka-0.0.4beta-macos-aarch64.dmg"
 url = "https://github.com/steve372a/sanaka/releases/download/v0.0.4%28beta%29/sanaka-0.0.4beta-macos-aarch64.dmg"
-sha256 = "689f5fa2d7456215770c5ac0a82e037b120313a4987331c9e0ddda9a2bda8a20"
-size = 197024174
+sha256 = "6108179486261f9195bc16cd4d66533e7701f8585d5c3d3a1a516546b2cf4639"
+size = 197010263
 
 [[assets]]
 platform = "win32"
 arch = "x64"
 file_name = "sanaka-0.0.4beta-win-x64.exe"
 url = "https://github.com/steve372a/sanaka/releases/download/v0.0.4%28beta%29/sanaka-0.0.4beta-win-x64.exe"
-sha256 = "e6c1c78149815c6905dd94e339d9a22809b1875b200e18cf3155fb0ec7417bf6"
-size = 212467668
+sha256 = "51dd0876d7b506a74fbf7dd7a1ad1d3051b061103a18d0fffb0f5375e8299c2c"
+size = 212470559
 
 [[assets]]
 platform = "linux"
 arch = "x64"
 file_name = "sanaka-0.0.4beta-linux-amd64.deb"
 url = "https://github.com/steve372a/sanaka/releases/download/v0.0.4%28beta%29/sanaka-0.0.4beta-linux-amd64.deb"
-sha256 = "b9d012981c748ff146e521e6f1885ae7c92d28dc3bdb067797a9c374148a37d4"
-size = 134312180
+sha256 = "e170fa31b19cbc616d2e83c92d148a50d58abdc42b57c908e04432e881888a43"
+size = 134314404
 
 [[assets]]
 platform = "linux"
 arch = "arm64"
 file_name = "sanaka-0.0.4beta-linux-aarch64.deb"
 url = "https://github.com/steve372a/sanaka/releases/download/v0.0.4%28beta%29/sanaka-0.0.4beta-linux-aarch64.deb"
-sha256 = "9f5050a1943921efa1862412a52f94d4cbdbbbff75c430d33d826111e76bf19a"
-size = 128996868
+sha256 = "a791eca78cadb5e5ec830a3876394b27406f092d1ae093d46b88651c9fc248bc"
+size = 128999496
